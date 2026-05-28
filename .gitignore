@@ -1,0 +1,28 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Audio temp files
+audio_tmp/*.mp3
+audio_tmp/*.wav
+audio_tmp/*.m4a
+audio_tmp/*.mp4
+audio_tmp/*.webm
+
+# Database
+*.db
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db

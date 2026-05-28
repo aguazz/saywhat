@@ -1,0 +1,6 @@
+streamlit
+assemblyai
+yt-dlp
+python-dotenv
+fpdf2
+requests

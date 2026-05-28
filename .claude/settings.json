@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/aguaz/.claude/projects/c--Users-aguaz-Proton-Drive-aguazz-My-files-CodeProjects-debate-fact-checker/memory/**)",
+      "WebFetch(domain:www.assemblyai.com)",
+      "Bash(C:/Users/aguaz/anaconda3/Scripts/streamlit.exe run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8501/)",
+      "Bash(curl -s http://localhost:8501/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8502/)",
+      "Bash(taskkill /F /IM streamlit.exe)",
+      "Bash(exit 0)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\aguaz\\.claude\\projects\\c--Users-aguaz-Proton-Drive-aguazz-My-files-CodeProjects-debate-fact-checker\\memory"
+    ]
+  }
+}
