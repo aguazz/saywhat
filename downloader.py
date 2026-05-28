@@ -93,6 +93,8 @@ def _download_from_url(url: str, output_dir: Path, on_progress=None) -> tuple[Pa
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [_ydl_hook],
+        # Android client is less aggressively blocked by YouTube on cloud IPs.
+        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
     }
 
     try:
@@ -113,7 +115,7 @@ def _download_from_url(url: str, output_dir: Path, on_progress=None) -> tuple[Pa
             )
         raise ValueError(
             f"Could not download the video. Please check the URL and try again. "
-            f"(Error: {type(e).__name__})"
+            f"(Error: {type(e).__name__}: {str(e)[:300]})"
         )
 
 

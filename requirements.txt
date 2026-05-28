@@ -1,6 +1,6 @@
 streamlit
 assemblyai
-yt-dlp
+yt-dlp>=2024.11.4
 python-dotenv
 fpdf2
 requests
