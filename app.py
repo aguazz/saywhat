@@ -58,6 +58,8 @@ LABELS = {
                      "Español": "Transcripción guardada. Comparte este enlace:"},
     "err_not_found":{"English": "Transcript not found. The link may be invalid or the record was deleted.",
                      "Español": "Transcripción no encontrada. El enlace puede ser inválido o el registro fue eliminado."},
+    "merge_lbl":    {"English": "Merge {sid} into…",    "Español": "Fusionar {sid} con…"},
+    "merge_keep":   {"English": "Keep separate",          "Español": "Mantener separado"},
 }
 
 SPEAKER_COLORS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
@@ -234,13 +236,23 @@ def main() -> None:
         return
 
     st.divider()
-    st.subheader(L("transcript"))
 
     utterances = t.get("utterances", [])
     speakers   = sorted({u["speaker"] for u in utterances})
     dur        = t.get("duration_seconds", 0)
     dur_str    = f"{int(dur // 60)}m {int(dur % 60)}s"
 
+    # Read current speaker names and merge map from session state
+    speaker_names = {
+        sid: st.session_state.get(f"speaker_name_{sid}", "")
+        for sid in speakers
+    }
+    merge_map = {
+        sid: st.session_state.get(f"speaker_merge_{sid}", sid)
+        for sid in speakers
+    }
+
+    # Summary stats
     st.markdown(
         LABELS["summary"][lang].format(
             lang  = t.get("language", "?").upper(),
@@ -250,36 +262,60 @@ def main() -> None:
         )
     )
 
-    # Read speaker names set by the inputs below (empty on first render)
+    if "_saved_link" in st.session_state:
+        st.info(f"{L('saved_link')}\n\n`{st.session_state['_saved_link']}`")
+
+    # Speaker controls — name and optional merge (shown before the transcript)
+    st.subheader(L("name_speakers"))
+    for sid in speakers:
+        col_name, col_merge = st.columns([3, 2])
+        with col_name:
+            st.text_input(
+                LABELS["spk_name_lbl"][lang].format(sid=sid),
+                placeholder=L("spk_name_ph"),
+                key=f"speaker_name_{sid}",
+            )
+        with col_merge:
+            other = [s for s in speakers if s != sid]
+            if other:
+                st.selectbox(
+                    LABELS["merge_lbl"][lang].format(sid=sid),
+                    options=[sid] + other,
+                    format_func=lambda s, _sid=sid: (
+                        L("merge_keep") if s == _sid
+                        else (speaker_names.get(s) or f"{LABELS['speaker'][lang]} {s}")
+                    ),
+                    key=f"speaker_merge_{sid}",
+                )
+
+    # Re-read after widgets so merged_utterances uses current values
     speaker_names = {
         sid: st.session_state.get(f"speaker_name_{sid}", "")
         for sid in speakers
     }
+    merge_map = {
+        sid: st.session_state.get(f"speaker_merge_{sid}", sid)
+        for sid in speakers
+    }
 
-    st.markdown(
-        "".join(render_utterance(u, lang, speaker_names) for u in utterances),
-        unsafe_allow_html=True,
-    )
+    # Remap each utterance's speaker to its effective (post-merge) speaker
+    merged_utterances = [
+        {**u, "speaker": merge_map.get(u["speaker"], u["speaker"])}
+        for u in utterances
+    ]
 
-    if t.get("has_low_confidence_zones"):
-        st.caption(L("legend"))
-
-    # Shareable link (shown after every transcription and when loaded via URL)
-    if "_saved_link" in st.session_state:
-        st.info(f"{L('saved_link')}\n\n`{st.session_state['_saved_link']}`")
-
-    # Speaker renaming
-    st.divider()
-    st.subheader(L("name_speakers"))
-    for sid in speakers:
-        st.text_input(
-            LABELS["spk_name_lbl"][lang].format(sid=sid),
-            placeholder=L("spk_name_ph"),
-            key=f"speaker_name_{sid}",
+    # Collapsible transcript
+    with st.expander(L("transcript"), expanded=True):
+        st.markdown(
+            "".join(render_utterance(u, lang, speaker_names) for u in merged_utterances),
+            unsafe_allow_html=True,
         )
+        if t.get("has_low_confidence_zones"):
+            st.caption(L("legend"))
 
+    # Exports — apply merge before substituting names
     st.divider()
-    export_t  = substitute_names(t, speaker_names)
+    export_t  = substitute_names({**t, "utterances": merged_utterances}, speaker_names)
     slug      = "".join(c if c.isalnum() or c in "-_" else "_"
                         for c in t.get("_title", "transcript")).strip()[:50]
     dt_str    = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -295,7 +331,7 @@ def main() -> None:
     with col2:
         st.download_button(
             label     = L("btn_dl_pdf"),
-            data      = build_pdf(export_t, speaker_names),
+            data      = build_pdf(export_t),
             file_name = f"transcript_{slug}_{dt_str}.pdf",
             mime      = "application/pdf",
         )
