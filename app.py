@@ -7,6 +7,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from downloader import download_audio
+from identifier import suggest_speaker_names
 from exporters import build_pdf, substitute_names
 from flagging import flag_transcript
 from storage import load_transcript, save_transcript
@@ -60,6 +61,16 @@ LABELS = {
                      "Español": "Transcripción no encontrada. El enlace puede ser inválido o el registro fue eliminado."},
     "merge_lbl":    {"English": "Merge {sid} into…",    "Español": "Fusionar {sid} con…"},
     "merge_keep":   {"English": "Keep separate",          "Español": "Mantener separado"},
+    "btn_suggest":  {"English": "✨  Suggest speaker names",
+                     "Español": "✨  Sugerir nombres de hablantes"},
+    "suggesting":   {"English": "Asking Claude to identify speakers…",
+                     "Español": "Consultando a Claude para identificar hablantes…"},
+    "suggest_ok":   {"English": "Names suggested — review and edit if needed.",
+                     "Español": "Nombres sugeridos — revisa y edita si es necesario."},
+    "suggest_low":  {"English": "⚠ Speaker {sid}: low confidence — please verify this name.",
+                     "Español": "⚠ Hablante {sid}: baja confianza — por favor verifica este nombre."},
+    "suggest_err":  {"English": "Could not suggest names: {err}",
+                     "Español": "No se pudieron sugerir nombres: {err}"},
 }
 
 SPEAKER_COLORS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
@@ -149,7 +160,8 @@ def main() -> None:
     st.caption(L("subtitle"))
 
     # Input
-    api_key = os.environ.get("ASSEMBLYAI_API_KEY", "")
+    api_key      = os.environ.get("ASSEMBLYAI_API_KEY", "")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         st.warning(
             "⚠ **ASSEMBLYAI_API_KEY not found.** "
@@ -242,6 +254,16 @@ def main() -> None:
     dur        = t.get("duration_seconds", 0)
     dur_str    = f"{int(dur // 60)}m {int(dur % 60)}s"
 
+    # Apply AI name suggestions produced in the previous run (must precede widget creation)
+    low_conf_note = []
+    if "_name_suggestions" in st.session_state:
+        for sid, info in st.session_state.pop("_name_suggestions").items():
+            name = info.get("name", "")
+            if name and name != "Unknown":
+                st.session_state[f"speaker_name_{sid}"] = name
+            if info.get("confidence") == "low":
+                low_conf_note.append(sid)
+
     # Read current speaker names and merge map from session state
     speaker_names = {
         sid: st.session_state.get(f"speaker_name_{sid}", "")
@@ -267,6 +289,20 @@ def main() -> None:
 
     # Speaker controls — name and optional merge (shown before the transcript)
     st.subheader(L("name_speakers"))
+
+    # Suggest-names button
+    if anthropic_key:
+        if st.button(L("btn_suggest")):
+            try:
+                with st.spinner(L("suggesting")):
+                    suggestions = suggest_speaker_names(t, anthropic_key)
+                st.session_state["_name_suggestions"] = suggestions
+                st.rerun()
+            except Exception as e:
+                st.error(LABELS["suggest_err"][lang].format(err=str(e)[:200]))
+    else:
+        st.caption("Add ANTHROPIC_API_KEY to Streamlit Secrets to enable name suggestions.")
+
     for sid in speakers:
         col_name, col_merge = st.columns([3, 2])
         with col_name:
@@ -287,6 +323,10 @@ def main() -> None:
                     ),
                     key=f"speaker_merge_{sid}",
                 )
+
+    # Show confidence notes from the just-applied suggestion (transient — gone next interaction)
+    for sid in low_conf_note:
+        st.caption(LABELS["suggest_low"][lang].format(sid=sid))
 
     # Re-read after widgets so merged_utterances uses current values
     speaker_names = {
