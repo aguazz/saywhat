@@ -274,12 +274,13 @@ def main() -> None:
         for sid in speakers
     }
 
-    # Summary stats
+    # Summary stats — speaker count reflects merges
+    effective_speakers = len({merge_map.get(sid, sid) for sid in speakers})
     st.markdown(
         LABELS["summary"][lang].format(
             lang  = t.get("language", "?").upper(),
             dur   = dur_str,
-            spk   = len(speakers),
+            spk   = effective_speakers,
             flags = t.get("low_confidence_count", 0),
         )
     )
@@ -304,13 +305,19 @@ def main() -> None:
         st.caption("Add ANTHROPIC_API_KEY to Streamlit Secrets to enable name suggestions.")
 
     for sid in speakers:
+        effective  = merge_map.get(sid, sid)
+        is_merged  = effective != sid
         col_name, col_merge = st.columns([3, 2])
         with col_name:
             st.text_input(
                 LABELS["spk_name_lbl"][lang].format(sid=sid),
                 placeholder=L("spk_name_ph"),
                 key=f"speaker_name_{sid}",
+                disabled=is_merged,
             )
+            if is_merged:
+                target_name = speaker_names.get(effective) or f"{LABELS['speaker'][lang]} {effective}"
+                st.caption(f"→ {target_name}")
         with col_merge:
             other = [s for s in speakers if s != sid]
             if other:
