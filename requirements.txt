@@ -2,5 +2,5 @@ streamlit
 assemblyai
 yt-dlp>=2024.11.4
 python-dotenv
-fpdf2<3.0
+reportlab
 requests
