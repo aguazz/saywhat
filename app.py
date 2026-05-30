@@ -272,7 +272,13 @@ def ms_to_ts(ms: int) -> str:
 
 def render_utterance(utt: dict, lang: str, speaker_names: dict) -> str:
     sid   = utt["speaker"]
-    color = SPEAKER_COLORS[min(ord(sid) - ord("A"), len(SPEAKER_COLORS) - 1)]
+    # Single-char IDs from AssemblyAI ("A","B"…) use the original formula.
+    # Multi-char IDs (from re-imported substituted JSONs or custom names) use a
+    # deterministic sum of char codes so the colour is stable across reruns.
+    if len(sid) == 1:
+        color = SPEAKER_COLORS[min(ord(sid) - ord("A"), len(SPEAKER_COLORS) - 1)]
+    else:
+        color = SPEAKER_COLORS[sum(ord(c) for c in sid) % len(SPEAKER_COLORS)]
     name  = speaker_names.get(sid) or f"{LABELS['speaker'][lang]} {sid}"
     start = ms_to_ts(utt["start_ms"])
     flag  = utt.get("flag", "ok")
@@ -398,6 +404,14 @@ def main() -> None:
                 if "utterances" not in data:
                     st.error(L("err_not_transcript_json"))
                 else:
+                    # Normalise speaker IDs: if utterances use multi-char IDs
+                    # (e.g. "Speaker A" from a substituted export), remap them
+                    # back to single uppercase letters so the rest of the app works.
+                    raw_speakers = sorted({u["speaker"] for u in data["utterances"]})
+                    if any(len(s) > 1 for s in raw_speakers):
+                        sid_map = {s: chr(ord("A") + i) for i, s in enumerate(raw_speakers)}
+                        for u in data["utterances"]:
+                            u["speaker"] = sid_map[u["speaker"]]
                     st.session_state["transcript"] = data
                     for key in ("analysis", "verdicts", "responses", "rhetoric",
                                 "speaker_report", "_saved_link", "_has_analysis_link",
