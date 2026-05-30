@@ -837,12 +837,52 @@ def main() -> None:
                     _rhet_model      = "claude-haiku-4-5-20251001" if _rhet_model_choice == L("model_haiku") else "claude-sonnet-4-6"
                     _resp_batch_size = _resp_batch
 
+                    # ── Dynamic cost estimates ─────────────────────────────────
+                    # Rough per-API-call cost ranges (USD) for each model.
+                    # Detect Responses: ~400 tokens in + ~150 out per call.
+                    # Rhetoric: ~800 tokens in + ~300 out per call (longer turns).
+                    _RESP_CALL_COST = {
+                        "claude-haiku-4-5-20251001": (0.0008, 0.002),
+                        "claude-sonnet-4-6":         (0.006,  0.018),
+                    }
+                    _RHET_CALL_COST = {
+                        "claude-haiku-4-5-20251001": (0.001,  0.004),
+                        "claude-sonnet-4-6":         (0.010,  0.035),
+                    }
+
+                    _n_claims  = len(analysis.get("claims", []))
+                    _n_turns   = len({c.get("turn_index") for c in analysis.get("claims", [])})
+
+                    # Number of API calls = ceiling(_n_claims / batch_size)
+                    _n_dr_calls = max(1, (_n_claims + _resp_batch_size - 1) // _resp_batch_size)
+                    _dr_lo, _dr_hi = _RESP_CALL_COST[_resp_model]
+                    _dr_lo_tot, _dr_hi_tot = _dr_lo * _n_dr_calls, _dr_hi * _n_dr_calls
+
+                    _rh_lo, _rh_hi = _RHET_CALL_COST[_rhet_model]
+                    _rh_lo_tot, _rh_hi_tot = _rh_lo * _n_turns, _rh_hi * _n_turns
+
+                    def _fmt(lo: float, hi: float) -> str:
+                        if hi < 0.01:
+                            return f"~${lo:.3f}–${hi:.3f}"
+                        return f"~${lo:.2f}–${hi:.2f}"
+
+                    _dr_note = (
+                        f"{_fmt(_dr_lo_tot, _dr_hi_tot)} "
+                        f"({_n_claims} claims · {_n_dr_calls} API call{'s' if _n_dr_calls != 1 else ''} · "
+                        f"{'Haiku' if 'haiku' in _resp_model else 'Sonnet'}, batch {_resp_batch_size})"
+                    )
+                    _rh_note = (
+                        f"{_fmt(_rh_lo_tot, _rh_hi_tot)} "
+                        f"({_n_turns} turns · "
+                        f"{'Haiku' if 'haiku' in _rhet_model else 'Sonnet'})"
+                    )
+
                     # ── Detect Responses button
                     col_dr, col_dr_note = st.columns([1, 3])
                     with col_dr:
                         dr_clicked = st.button(L("detect_responses"), disabled=not anthropic_key)
                     with col_dr_note:
-                        st.caption(L("detect_responses_note"))
+                        st.caption(_dr_note)
 
                     if dr_clicked and anthropic_key:
                         _dr_claims = sorted(
@@ -867,6 +907,7 @@ def main() -> None:
                                 batch_size=_resp_batch_size,
                             )
                         except Exception as exc:
+                            _prog_dr.empty()
                             st.error(str(exc))
 
                     # Analyze Rhetoric button
@@ -874,7 +915,7 @@ def main() -> None:
                     with col_rh:
                         rh_clicked = st.button(L("run_rhetoric"), disabled=not anthropic_key)
                     with col_rh_note:
-                        st.caption(L("rhetoric_cost"))
+                        st.caption(_rh_note)
 
                     if rh_clicked and anthropic_key:
                         turns_rh = segment_turns(utterances_an)
