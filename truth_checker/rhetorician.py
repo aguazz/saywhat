@@ -24,13 +24,13 @@ _SYSTEM = (
 )
 
 
-def analyze_turn_rhetoric(turn: dict, api_key: str) -> dict:
+def analyze_turn_rhetoric(turn: dict, api_key: str, model: str = "claude-sonnet-4-6") -> dict:
     client = anthropic.Anthropic(api_key=api_key)
     user_msg = f"Speaker: {turn['speaker']}\nText:\n{turn['text']}"
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=model,
             max_tokens=1024,
             system=_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],

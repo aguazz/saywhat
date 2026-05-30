@@ -7,26 +7,41 @@ import anthropic
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
-    "You are an argument analyst. Extract every discrete claim from the speaker turn below. "
-    "A claim is a statement presented as true. Do not extract questions, expressions of "
-    "preference ('I think we should...'), greetings, filler, or clear jokes and hyperbole. "
+    "You are an argument analyst. Extract discrete substantive claims from the speaker turn below. "
+    "A claim is a statement about the world presented as true that can be agreed or disagreed with. "
+    "Do NOT extract:\n"
+    "- Questions directed at other speakers\n"
+    "- Greetings, thank-yous, filler phrases, or transition sentences\n"
+    "- Descriptions of what other speakers believe or have said (e.g. 'Juan Ramón says that…')\n"
+    "- Moderator-style introductions or context-setting sentences about the debate itself\n"
+    "- Expressions of preference ('I think we should…') without a factual assertion\n"
+    "- Clear jokes, hyperbole, or rhetorical questions\n"
+    "Focus on factual, causal, statistical, interpretive, or evaluative claims about the debate topic. "
+    "Be conservative: extract the 3–6 most substantive claims per turn, not every possible statement. "
     "The turn may be in Spanish or English — preserve the original language in your output. "
     'Return a JSON array. Each item: {"text": str, "start_hint": str}. '
     '"text" is the exact or lightly cleaned claim. '
     '"start_hint" is the first 5 words of the sentence. '
-    "If there are no claims, return []."
+    "If there are no substantive claims, return []."
 )
+
+_MIN_TURN_WORDS = 20   # skip turns shorter than this — usually greetings or brief remarks
 
 
 def extract_claims_from_turn(turn: dict, api_key: str) -> list[dict]:
     """
-    Extract discrete factual claims from a single speaker turn using Claude Haiku.
+    Extract discrete substantive claims from a single speaker turn using Claude Haiku.
 
-    Returns a list of claim dicts with id, speaker, turn_index, start_ms, end_ms,
-    text, and start_hint. Returns [] if the API call fails or yields no claims.
+    Skips very short turns (likely greetings/acknowledgements) that would not
+    contain meaningful claims.  Returns [] if the API call fails or no claims
+    are found.
     """
-    client = anthropic.Anthropic(api_key=api_key)
+    # Skip turns that are too short to contain a real claim
+    word_count = len(turn["text"].split())
+    if word_count < _MIN_TURN_WORDS:
+        return []
 
+    client = anthropic.Anthropic(api_key=api_key)
     user_msg = f"Speaker: {turn['speaker']}\nText:\n{turn['text']}"
 
     try:

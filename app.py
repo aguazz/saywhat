@@ -124,8 +124,8 @@ LABELS = {
     # ── Fact-check button + progress ────────────────────────────────────────
     "run_factcheck":     {"English": "Run Fact-Check",
                           "Español": "Ejecutar verificación"},
-    "factcheck_cost":    {"English": "Estimated cost: ~$0.01–$0.05 per claim (Claude Sonnet + free APIs)",
-                          "Español": "Coste estimado: ~$0.01–$0.05 por afirmación (Claude Sonnet + APIs gratuitas)"},
+    "factcheck_cost":    {"English": "Estimated cost: ~$0.01–$0.05 per checkable claim (Claude Sonnet + free APIs)",
+                          "Español": "Coste estimado: ~$0.01–$0.05 por afirmación verificable (Claude Sonnet + APIs gratuitas)"},
     "prog_factcheck":    {"English": "Fact-checking claim {i} of {n}…",
                           "Español": "Verificando afirmación {i} de {n}…"},
     # ── Verdict labels ───────────────────────────────────────────────────────
@@ -166,8 +166,8 @@ LABELS = {
     "detect_responses":  {"English": "Detect Responses",
                           "Español": "Detectar respuestas"},
     "detect_responses_note": {
-        "English": "Estimated cost: ~$0.01–$0.03 per claim (Claude Sonnet)",
-        "Español": "Coste estimado: ~$0.01–$0.03 por afirmación (Claude Sonnet)",
+        "English": "Estimated cost: ~$0.002–$0.03 per claim depending on model and batch size",
+        "Español": "Coste estimado: ~$0.002–$0.03 por afirmación según modelo y tamaño de lote",
     },
     "detecting_responses": {
         "English": "Detecting response relationships between speakers…",
@@ -249,6 +249,31 @@ LABELS = {
     # ── Detect Responses progress ────────────────────────────────────────────
     "prog_detect":         {"English": "Detecting response {i} of {n}…",
                             "Español": "Detectando respuesta {i} de {n}…"},
+    # ── Pipeline settings ────────────────────────────────────────────────────
+    "settings_expander":   {"English": "⚙️ Cost / quality settings",
+                            "Español": "⚙️ Ajustes de coste / calidad"},
+    "resp_model_label":    {"English": "Response detection model",
+                            "Español": "Modelo — detección de respuestas"},
+    "rhet_model_label":    {"English": "Rhetoric analysis model",
+                            "Español": "Modelo — análisis retórico"},
+    "resp_batch_label":    {"English": "Claims per API call (batching)",
+                            "Español": "Afirmaciones por llamada (lotes)"},
+    "model_haiku":         {"English": "Haiku · faster, ~12× cheaper",
+                            "Español": "Haiku · más rápido, ~12× más barato"},
+    "model_sonnet":        {"English": "Sonnet · best quality",
+                            "Español": "Sonnet · mayor calidad"},
+    "settings_tip":        {
+        "English": (
+            "**Haiku** is recommended for both steps unless you need maximum precision. "
+            "**Batch size 5** gives ~5× fewer API calls with minimal quality loss. "
+            "Fact-checking runs only on factual / statistical / comparative claims."
+        ),
+        "Español": (
+            "**Haiku** es recomendable en ambos pasos salvo que necesites máxima precisión. "
+            "**Lote 5** reduce ~5× las llamadas con pérdida mínima de calidad. "
+            "La verificación solo se ejecuta en afirmaciones factuales / estadísticas / comparativas."
+        ),
+    },
     "saved_link_full":     {
         "English": "Transcript & analysis saved. Share this link:",
         "Español": "Transcripción y análisis guardados. Comparte este enlace:",
@@ -733,10 +758,17 @@ def main() -> None:
                 with col_fc_note:
                     st.caption(L("factcheck_cost"))
 
+                # Claim types that can actually be verified against external evidence.
+                # Causal, interpretive, moral, and anecdotal claims almost always
+                # return "unverifiable" and waste API calls.
+                _VERIFIABLE_TYPES = {"factual", "statistical", "comparative"}
+
                 if fc_clicked and anthropic_key:
                     checkable = [
                         c for c in analysis.get("claims", [])
-                        if c.get("checkable") and not c.get("satirical")
+                        if c.get("checkable")
+                        and not c.get("satirical")
+                        and c.get("claim_type") in _VERIFIABLE_TYPES
                     ]
                     verdicts: dict = {}
                     prog_fc = st.progress(
@@ -774,7 +806,38 @@ def main() -> None:
 
                 # ── Claims sub-tab ─────────────────────────────────────────────
                 with subtab_claims:
-                    # Detect Responses button
+                    # ── Pipeline settings ──────────────────────────────────────
+                    with st.expander(L("settings_expander")):
+                        _s1, _s2, _s3 = st.columns([2, 2, 1])
+                        with _s1:
+                            _resp_model_choice = st.radio(
+                                L("resp_model_label"),
+                                [L("model_haiku"), L("model_sonnet")],
+                                index=0,
+                                key="resp_model_radio",
+                            )
+                        with _s2:
+                            _rhet_model_choice = st.radio(
+                                L("rhet_model_label"),
+                                [L("model_haiku"), L("model_sonnet")],
+                                index=0,
+                                key="rhet_model_radio",
+                            )
+                        with _s3:
+                            _resp_batch = st.select_slider(
+                                L("resp_batch_label"),
+                                options=[1, 3, 5, 10],
+                                value=1,
+                                key="resp_batch_slider",
+                            )
+                        st.caption(L("settings_tip"))
+
+                    # Resolve model IDs from widget return values
+                    _resp_model      = "claude-haiku-4-5-20251001" if _resp_model_choice == L("model_haiku") else "claude-sonnet-4-6"
+                    _rhet_model      = "claude-haiku-4-5-20251001" if _rhet_model_choice == L("model_haiku") else "claude-sonnet-4-6"
+                    _resp_batch_size = _resp_batch
+
+                    # ── Detect Responses button
                     col_dr, col_dr_note = st.columns([1, 3])
                     with col_dr:
                         dr_clicked = st.button(L("detect_responses"), disabled=not anthropic_key)
@@ -798,7 +861,10 @@ def main() -> None:
                             )
                         try:
                             st.session_state["responses"] = detect_responses(
-                                _dr_claims, anthropic_key, on_progress=_dr_progress,
+                                _dr_claims, anthropic_key,
+                                on_progress=_dr_progress,
+                                model=_resp_model,
+                                batch_size=_resp_batch_size,
                             )
                         except Exception as exc:
                             st.error(str(exc))
@@ -819,7 +885,7 @@ def main() -> None:
                         )
                         for i, turn in enumerate(turns_rh):
                             try:
-                                rh_results.append(analyze_turn_rhetoric(turn, anthropic_key))
+                                rh_results.append(analyze_turn_rhetoric(turn, anthropic_key, model=_rhet_model))
                             except Exception as exc:
                                 rh_results.append({
                                     "fallacies": [], "rhetorical_devices": [],
