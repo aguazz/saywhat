@@ -1,13 +1,14 @@
 import copy
 import html
 import io
+from collections import defaultdict
 from datetime import datetime
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 def substitute_names(transcript: dict, speaker_names: dict) -> dict:
@@ -65,6 +66,181 @@ def build_pdf(transcript: dict) -> bytes:
 
         story.append(Paragraph(line, muted if flag == "unreliable" else body))
         story.append(Spacer(1, 1 * mm))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def build_analysis_pdf(
+    claims: list[dict],
+    threads: list[dict],
+    speaker_names: dict,
+    speaker_report: dict,
+    verdicts: dict,
+    title: str,
+) -> bytes:
+    """
+    Render a PDF analysis report (claims, verdicts, speaker summaries).
+    Returns raw PDF bytes suitable for st.download_button.
+    """
+    _VERDICT_TEXT = {
+        "true":           "True",
+        "partially_true": "Partly True",
+        "contested":      "Contested",
+        "misleading":     "Misleading",
+        "false":          "False",
+        "unverifiable":   "Unverifiable",
+        "subjective":     "Subjective",
+    }
+
+    buf    = io.BytesIO()
+    page_w = A4[0]
+    usable = page_w - 2 * 20 * mm   # ~481.9 pt
+
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=20*mm, rightMargin=20*mm,
+        topMargin=20*mm, bottomMargin=20*mm,
+    )
+
+    h1    = ParagraphStyle("an_h1",  fontName="Helvetica-Bold", fontSize=15, spaceAfter=4,  leading=18)
+    h2    = ParagraphStyle("an_h2",  fontName="Helvetica-Bold", fontSize=12, spaceBefore=10, spaceAfter=5,  leading=15)
+    h3    = ParagraphStyle("an_h3",  fontName="Helvetica-Bold", fontSize=10, spaceBefore=6,  spaceAfter=3,  leading=13)
+    body  = ParagraphStyle("an_body", fontName="Helvetica",      fontSize=9,  spaceAfter=3,  leading=12)
+    cell  = ParagraphStyle("an_cell", fontName="Helvetica",      fontSize=9,  leading=11)
+    cellb = ParagraphStyle("an_cb",  fontName="Helvetica-Bold",  fontSize=9,  leading=11)
+    muted = ParagraphStyle("an_muted", fontName="Helvetica",     fontSize=8,  textColor=colors.grey, leading=10)
+
+    _cell_style = TableStyle([
+        ("FONTSIZE",       (0, 0), (-1, -1), 9),
+        ("VALIGN",         (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING",     (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING",  (0, 0), (-1, -1), 3),
+        ("LEFTPADDING",    (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING",   (0, 0), (-1, -1), 4),
+    ])
+    _grid_style = TableStyle([
+        *_cell_style._cmds,
+        ("BOX",       (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ("BACKGROUND",(0, 0), (-1, -1), colors.HexColor("#f8f8f8")),
+    ])
+    _claim_tbl_style = TableStyle([
+        *_cell_style._cmds,
+        ("BACKGROUND",    (0, 0), (-1, 0), colors.HexColor("#e8e8e8")),
+        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("GRID",          (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, colors.HexColor("#fafafa")]),
+    ])
+
+    story = []
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    story.append(Paragraph("SayWhat — Debate Analysis Report", h1))
+    story.append(Paragraph(html.escape(title), h2))
+    story.append(Paragraph(f"Generated {datetime.now().strftime('%Y-%m-%d')}", muted))
+    story.append(Spacer(1, 6 * mm))
+
+    # ── Section 1: Speaker Summary ────────────────────────────────────────────
+    story.append(Paragraph("1. Speaker Summary", h2))
+
+    for sid in sorted(speaker_report.keys()):
+        entry   = speaker_report[sid]
+        score   = entry.get("score", {})
+        summary = entry.get("summary", "")
+        name    = speaker_names.get(sid) or f"Speaker {sid}"
+        v       = score.get("verdicts", {})
+
+        rs        = score.get("reliability_score")
+        dr        = score.get("direct_response_rate")
+        checkable = score.get("checkable_claims", 0)
+        supported = v.get("true", 0) + v.get("partially_true", 0)
+
+        rs_str = f"{rs:.0%}" if rs is not None else "N/A"
+        dr_str = f"{dr:.0%}" if dr is not None else "N/A"
+
+        story.append(Paragraph(html.escape(name), h3))
+
+        grid = Table(
+            [
+                [Paragraph("Reliability",         cellb), Paragraph(rs_str,                    cell),
+                 Paragraph("Supported Claims",     cellb), Paragraph(f"{supported} of {checkable}", cell)],
+                [Paragraph("Direct Response Rate", cellb), Paragraph(dr_str,                    cell),
+                 Paragraph("Logical Fallacies",    cellb), Paragraph(str(score.get("fallacy_count", 0)), cell)],
+            ],
+            colWidths=[usable * 0.22, usable * 0.15, usable * 0.28, usable * 0.35],
+        )
+        grid.setStyle(_grid_style)
+        story.append(grid)
+        story.append(Spacer(1, 3 * mm))
+
+        if summary:
+            story.append(Paragraph(html.escape(summary), body))
+        story.append(Spacer(1, 4 * mm))
+
+    # ── Section 2: Claims by Thread ───────────────────────────────────────────
+    story.append(Paragraph("2. Claims by Thread", h2))
+
+    thread_map: dict = {t.get("id", ""): t.get("thread_topic", t.get("topic", "")) for t in threads}
+    thread_claims: dict = defaultdict(list)
+    for c in sorted(claims, key=lambda x: x.get("start_ms", 0)):
+        thread_claims[c.get("thread_id", "main")].append(c)
+
+    col_w = [36, 65, 60, usable - 36 - 65 - 60 - 65, 65]   # Time | Speaker | Type | Claim | Verdict
+
+    for tid in sorted(thread_claims.keys()):
+        topic = thread_map.get(tid, tid) or tid
+        story.append(Paragraph(html.escape(f"Thread: {topic}"), h3))
+
+        rows = [["Time", "Speaker", "Type", "Claim", "Verdict"]]
+        for c in thread_claims[tid]:
+            cid         = c["id"]
+            verdict_key = verdicts.get(cid, {}).get("verdict", "") if c.get("checkable") else ""
+            rows.append([
+                _ms_to_ts(c.get("start_ms", 0)),
+                html.escape(speaker_names.get(c["speaker"], c["speaker"])),
+                c.get("claim_type", ""),
+                Paragraph(html.escape(c.get("text", "")), cell),
+                _VERDICT_TEXT.get(verdict_key, ""),
+            ])
+
+        tbl = Table(rows, colWidths=col_w, repeatRows=1)
+        tbl.setStyle(_claim_tbl_style)
+        story.append(tbl)
+        story.append(Spacer(1, 4 * mm))
+
+    # ── Section 3: Fact-Check Details ─────────────────────────────────────────
+    story.append(Paragraph("3. Fact-Check Details", h2))
+
+    has_any = False
+    for c in sorted(claims, key=lambda x: x.get("start_ms", 0)):
+        vdict = verdicts.get(c["id"])
+        if not vdict:
+            continue
+        has_any     = True
+        name        = speaker_names.get(c["speaker"], c["speaker"])
+        ts          = _ms_to_ts(c.get("start_ms", 0))
+        verdict_txt = _VERDICT_TEXT.get(vdict.get("verdict", ""), "—")
+        conf_pct    = int(vdict.get("confidence", 0) * 100)
+
+        story.append(Paragraph(
+            f"[{ts}] <b>{html.escape(name)}</b> — {html.escape(c.get('text', ''))}",
+            body,
+        ))
+        story.append(Paragraph(f"<b>Verdict:</b> {verdict_txt} ({conf_pct}%)", body))
+
+        explanation = vdict.get("explanation", "")
+        if explanation:
+            story.append(Paragraph(html.escape(explanation), body))
+
+        key_source = vdict.get("key_source", "")
+        if key_source:
+            story.append(Paragraph(f"<b>Source:</b> {html.escape(str(key_source))}", muted))
+
+        story.append(Spacer(1, 3 * mm))
+
+    if not has_any:
+        story.append(Paragraph("No fact-check results available.", body))
 
     doc.build(story)
     return buf.getvalue()

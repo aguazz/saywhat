@@ -186,10 +186,30 @@ Verdict per Claim
 - [x] **P9** — Export (PDF + JSON download buttons)
 - [x] **P10** — SQLite storage + shareable links
 - [ ] **P11** — Deploy to Streamlit Community Cloud
-- [ ] **P12** — Phase 2: Claim extraction (Claude Haiku)
-- [ ] **P13** — Phase 2: Evidence search (Semantic Scholar + PubMed)
-- [ ] **P14** — Phase 2: Source quality scoring
-- [ ] **P15** — Phase 2: Fact-check tab in UI
+- [~] **P12** — ~~Phase 2: Claim extraction~~ → superseded by TRUTH_CHECKER_PLAN.md P18–P20
+- [~] **P13** — ~~Phase 2: Evidence search~~ → superseded by TRUTH_CHECKER_PLAN.md P23
+- [~] **P14** — ~~Phase 2: Source quality scoring~~ → superseded by TRUTH_CHECKER_PLAN.md P24
+- [~] **P15** — ~~Phase 2: Fact-check tab in UI~~ → superseded by TRUTH_CHECKER_PLAN.md P22, P25, P29, P31, P33
+- [x] **P16** — Storage schema: `analyses`, `claims`, `verdict_feedback` tables
+- [x] **P17** — `truth_checker/` package + `segmenter.py`
+- [x] **P18** — `extractor.py` — claim extraction per turn (Claude Haiku)
+- [x] **P19** — `classifier.py` — claim type + checkability (Claude Haiku)
+- [x] **P20** — `threader.py` — thread grouping (Claude Sonnet)
+- [x] **P21** — `test_phase2a.py` — CLI pipeline test
+- [x] **P22** — `app.py` — Analysis tab, claim table, CSV export
+- [x] **P23** — `evidence.py` — Wikipedia + Semantic Scholar retrieval
+- [x] **P24** — `verifier.py` — factual verdict with reasoning (Claude Sonnet)
+- [x] **P25** — `app.py` — Run Fact-Check, verdict badges, expanders, 👎 feedback
+- [x] **P26** — `translator.py` + EN↔ES claim toggle in `app.py`
+- [x] **P27** — `responder.py` — cross-speaker response detection (Claude Sonnet)
+- [x] **P28** — `visualizer.py` — pyvis argument graph; pyvis + networkx in requirements
+- [x] **P29** — `app.py` — Claims/Argument Map sub-tabs, Detect Responses, graph legend
+- [x] **P30** — `rhetorician.py` — fallacy + device detection (Claude Sonnet)
+- [x] **P31** — `app.py` — Rhetorical Profile sub-tab
+- [x] **P32** — `scorer.py` + `reporter.py` — per-speaker scores and narrative
+- [x] **P33** — `app.py` — Speaker Report sub-tab
+- [x] **P34** — `exporters.py` — analysis PDF/JSON export + `app.py` download buttons
+- [x] **P35** — `storage.py` + `app.py` — analysis shareable link
 
 ---
 

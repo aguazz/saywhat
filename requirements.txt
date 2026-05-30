@@ -5,3 +5,5 @@ yt-dlp>=2024.11.4
 python-dotenv
 reportlab
 requests
+pyvis
+networkx

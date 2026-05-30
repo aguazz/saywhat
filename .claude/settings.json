@@ -8,7 +8,22 @@
       "Bash(curl -s http://localhost:8501/)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8502/)",
       "Bash(taskkill /F /IM streamlit.exe)",
-      "Bash(exit 0)"
+      "Bash(exit 0)",
+      "Bash(pip install *)",
+      "Bash(py -3 -c \"import anthropic; print\\(anthropic.__version__\\)\")",
+      "Bash(py -3 -m pip show anthropic)",
+      "Read(//c/Users/aguaz/AppData/Local/Programs/**)",
+      "Read(//c/Users/aguaz/.venv/**)",
+      "Bash(python3 -c \"import anthropic; print\\('ok', anthropic.__version__\\)\")",
+      "Bash(python3 -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(find /c/Users/aguaz -name \"python.exe\" 2>/dev/null | grep -v WindowsApps | head -10)",
+      "Read(//c/Users/aguaz/**)",
+      "Bash(pip show *)",
+      "Bash(/c/Users/aguaz/anaconda3/python.exe -c \"import anthropic; print\\('ok', anthropic.__version__\\)\")",
+      "Bash(/c/Users/aguaz/anaconda3/python.exe -c ' *)",
+      "Bash(/c/Users/aguaz/anaconda3/python.exe -c \"import pyvis; print\\('pyvis', pyvis.__version__\\)\")",
+      "Bash(/c/Users/aguaz/anaconda3/python.exe -m pip install pyvis networkx -q)",
+      "Bash(/c/Users/aguaz/anaconda3/python.exe -c \"import pyvis, networkx; print\\('pyvis', pyvis.__version__, '| networkx', networkx.__version__\\)\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\aguaz\\.claude\\projects\\c--Users-aguaz-Proton-Drive-aguazz-My-files-CodeProjects-debate-fact-checker\\memory"
