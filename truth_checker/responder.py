@@ -12,9 +12,14 @@ _SINGLE_SYSTEM = (
     "You are an argument analyst. Determine whether the current claim is a direct "
     "response to any of the listed prior claims.\n"
     "Relationship types: refutes (presents counter-evidence or reasoning), "
+    "undercuts (argues that the evidence or reasoning does not support the conclusion, "
+    "even if the conclusion might still be true), "
     "supports (agrees or extends), weakens (qualifies or reduces strength), "
     "reframes (accepts fact, changes interpretation), concedes (acknowledges "
     "the other is at least partly right), evades (changes subject), ignores (no link).\n"
+    "Distinguish carefully: use \"refutes\" when the response denies the conclusion itself. "
+    "Use \"undercuts\" when the response argues that the cited evidence or reasoning does "
+    "not support the conclusion, even if the conclusion might still be true.\n"
     "Return a JSON object:\n"
     '{"is_response": bool, "responds_to_claim_id": str|null, '
     '"relationship": str|null, "explanation": str}'
@@ -23,14 +28,17 @@ _SINGLE_SYSTEM = (
 _BATCH_SYSTEM = (
     "You are an argument analyst. For each numbered Current Claim below, determine "
     "whether it is a direct response to any of its listed Prior Claims.\n"
-    "Relationship types: refutes / supports / weakens / reframes / concedes / evades / ignores.\n"
+    "Relationship types: refutes / undercuts / supports / weakens / reframes / concedes / evades / ignores.\n"
+    "Distinguish carefully: use \"refutes\" when the response denies the conclusion itself. "
+    "Use \"undercuts\" when the response argues that the cited evidence or reasoning does "
+    "not support the conclusion, even if the conclusion might still be true.\n"
     "Return a JSON array with EXACTLY one object per Current Claim, in the same order:\n"
     '[{"is_response": bool, "responds_to_claim_id": str|null, '
     '"relationship": str|null, "explanation": str}, ...]'
 )
 
 _VALID_RELATIONSHIPS = {
-    "refutes", "supports", "weakens", "reframes", "concedes", "evades", "ignores",
+    "refutes", "undercuts", "supports", "weakens", "reframes", "concedes", "evades", "ignores",
 }
 
 _MAX_PRIOR = 8

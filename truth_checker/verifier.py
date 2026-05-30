@@ -65,10 +65,13 @@ def verify_claim(claim: dict, evidence: list[dict], api_key: str) -> dict:
         return {**_NO_EVIDENCE, "claim_id": claim["id"]}
 
     formatted = _format_evidence(evidence)
+    _warrant = claim.get("warrant_hint")
+    _warrant_line = f"Stated inference: {_warrant}\n" if _warrant else ""
     user_msg  = (
         f"Claim: {claim['text']}\n"
-        f"Speaker: {claim['speaker']}\n\n"
-        f"Evidence:\n{formatted}"
+        f"Speaker: {claim['speaker']}\n"
+        f"{_warrant_line}"
+        f"\nEvidence:\n{formatted}"
     )
 
     client = anthropic.Anthropic(api_key=api_key)

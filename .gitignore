@@ -26,3 +26,12 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Proton Drive sync conflict backups
+*# Name clash*
+
+# Academic papers (copyrighted PDFs — kept locally, not published)
+papers/
+
+# Claude Code local dev config
+.claude/

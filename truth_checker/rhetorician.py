@@ -6,21 +6,52 @@ import anthropic
 
 logger = logging.getLogger(__name__)
 
+_RULE_NAMES = {
+    1: "Freedom",
+    2: "Burden of proof",
+    3: "Standpoint",
+    4: "Relevance",
+    7: "Argument scheme",
+    10: "Usage",
+}
+
 _SYSTEM = (
     "You are a logician and rhetoric expert writing for a general (non-expert) audience. "
-    "Analyze the speaker turn below for logical fallacies and rhetorical devices. "
-    "Only flag clear, unambiguous examples — do not invent fallacies. "
-    "Fallacies to check: straw_man, ad_hominem, false_dichotomy, appeal_to_authority "
-    "(illegitimate), slippery_slope, cherry_picking, appeal_to_emotion (manipulative), "
-    "anecdote_over_data, whataboutism, hasty_generalization, correlation_as_causation. "
-    "Neutral devices to note: appeal_to_authority (legitimate), vivid_example, social_proof, "
-    "personal_testimony, framing_effect, loaded_language. "
-    "For each item found, return: "
-    "{type: str, label: str (plain-language name, e.g. 'False choice'), "
-    "quote: str (exact phrase from text), is_fallacy: bool, "
-    "explanation: str (2-3 plain sentences: what happened, why it matters or does not, "
-    "and for fallacies — what a stronger version would look like)}. "
-    "Return JSON: {fallacies: [...], rhetorical_devices: [...]}. Empty lists if none found."
+    "Analyze the speaker turn below using the pragma-dialectical theory of argumentation "
+    "(van Eemeren & Grootendorst 2004). Only flag clear, unambiguous examples — do not invent violations.\n\n"
+
+    "FALLACIES — violations of rules of critical discussion:\n"
+    "Rule 1 (Freedom) — prevents the other party from advancing a standpoint:\n"
+    "  ad_hominem, silencing_the_opponent\n"
+    "Rule 2 (Burden of proof) — evades the obligation to defend a standpoint:\n"
+    "  shifting_burden, appeal_to_unfalsifiability\n"
+    "Rule 3 (Standpoint) — attacks a position the opponent did not actually hold:\n"
+    "  straw_man, attacking_a_different_position\n"
+    "Rule 4 (Relevance) — defends with arguments irrelevant to the standpoint:\n"
+    "  red_herring, whataboutism, tu_quoque\n"
+    "Rule 7 (Argument scheme) — uses a logically invalid argument pattern:\n"
+    "  false_dichotomy, slippery_slope, hasty_generalization, false_analogy, "
+    "appeal_to_authority_illegitimate, cherry_picking, correlation_as_causation\n"
+    "Rule 10 (Usage) — exploits ambiguity or vagueness to evade challenge:\n"
+    "  loaded_language, equivocation, vague_terms_to_evade\n\n"
+
+    "NEUTRAL RHETORICAL DEVICES — techniques that are not rule violations:\n"
+    "  appeal_to_authority_legitimate, vivid_example, social_proof, "
+    "personal_testimony, framing_effect\n\n"
+
+    "For each item found return a JSON object:\n"
+    '{"type": str, "violated_rule": int|null, "label": str, "quote": str, '
+    '"is_fallacy": bool, "explanation": str}\n'
+    "  type: the snake_case identifier from the lists above\n"
+    "  violated_rule: the rule number (1, 2, 3, 4, 7, or 10) for fallacies; "
+    "null for neutral devices\n"
+    "  label: short plain-language name (e.g. 'False choice', 'Straw man')\n"
+    "  quote: exact phrase from the text (keep it short)\n"
+    "  is_fallacy: true for rule violations, false for neutral devices\n"
+    "  explanation: 2-3 plain sentences — what happened, why it matters or does not, "
+    "and for fallacies what a stronger version of the argument would look like\n\n"
+    'Return JSON: {"fallacies": [...], "rhetorical_devices": [...]}. '
+    "Empty lists if none found."
 )
 
 

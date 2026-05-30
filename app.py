@@ -32,6 +32,9 @@ from truth_checker.rhetorician import analyze_turn_rhetoric
 from truth_checker.reporter    import generate_speaker_summary
 from truth_checker.scorer      import compute_speaker_scores
 from truth_checker.visualizer  import build_graph_html
+from truth_checker.dung        import compute_grounded_extension
+from truth_checker.deduplicator import mark_restatements
+from truth_checker.stage_labeler import label_dialectical_stages
 
 load_dotenv()  # loads .env for local dev; no-op on Streamlit Community Cloud
 
@@ -129,15 +132,36 @@ LABELS = {
     "prog_factcheck":    {"English": "Fact-checking claim {i} of {n}…",
                           "Español": "Verificando afirmación {i} de {n}…"},
     # ── Verdict labels ───────────────────────────────────────────────────────
+    # Labels use epistemic-humility language (Rittel & Webber 1973):
+    # stored verdict keys are unchanged; only the display strings are renamed.
     "col_verdict":       {"English": "Verdict",          "Español": "Veredicto"},
-    "verdict_true":      {"English": "True",             "Español": "Verdadero"},
-    "verdict_partly_true":{"English": "Partly True",    "Español": "Parcialmente verdadero"},
+    "verdict_true":      {"English": "Supported",        "Español": "Respaldado"},
+    "verdict_partly_true":{"English": "Partially supported", "Español": "Parcialmente respaldado"},
     "verdict_contested": {"English": "Contested",        "Español": "Disputado"},
-    "verdict_misleading":{"English": "Misleading",       "Español": "Engañoso"},
-    "verdict_false":     {"English": "False",            "Español": "Falso"},
-    "verdict_unverifiable":{"English": "Unverifiable",  "Español": "No verificable"},
-    "verdict_subjective":{"English": "Subjective",      "Español": "Subjetivo"},
+    "verdict_misleading":{"English": "Contested",        "Español": "Disputado"},
+    "verdict_false":     {"English": "Unsupported",      "Español": "No respaldado"},
+    "verdict_unverifiable":{"English": "Beyond scope",  "Español": "Fuera de alcance"},
+    "verdict_subjective":{"English": "Beyond scope",    "Español": "Fuera de alcance"},
     "verdict_none":      {"English": "—",               "Español": "—"},
+    # ── Fact-check disclaimer ────────────────────────────────────────────────
+    "factcheck_disclaimer": {
+        "English": (
+            "**What this fact-check covers — and what it does not.** "
+            "This tool verifies factual sub-claims: statistics, historical events, and "
+            "cited empirical data. It does not evaluate normative claims, value judgments, "
+            "or contested interpretations of social and economic data — these involve ongoing "
+            "scholarly debate and have no single correct answer. "
+            "Claims of those types are labeled **Beyond scope**."
+        ),
+        "Español": (
+            "**Qué cubre esta verificación — y qué no.** "
+            "Esta herramienta verifica afirmaciones factuales: estadísticas, hechos históricos "
+            "y datos empíricos citados. No evalúa afirmaciones normativas, juicios de valor ni "
+            "interpretaciones disputadas de datos sociales y económicos — estos implican un debate "
+            "académico continuo y no tienen una única respuesta correcta. "
+            "Las afirmaciones de ese tipo se etiquetan como **Fuera de alcance**."
+        ),
+    },
     # ── Expander detail ──────────────────────────────────────────────────────
     "in_favour":         {"English": "In favour:",      "Español": "A favor:"},
     "against":           {"English": "Against:",        "Español": "En contra:"},
@@ -186,6 +210,36 @@ LABELS = {
     "legend_node_color":   {"English": "Node color = speaker",      "Español": "Color del nodo = hablante"},
     "legend_node_shape":   {"English": "Node shape = claim type",   "Español": "Forma del nodo = tipo de afirmación"},
     "legend_edge_color":   {"English": "Edge color = relationship",  "Español": "Color del arco = relación"},
+    "legend_undercuts":    {"English": "challenges the reasoning",   "Español": "cuestiona el razonamiento"},
+    # ── Argument survivability (Dung grounded extension) ────────────────────
+    "surv_grounded":   {"English": "Survived all counterarguments", "Español": "Resistió todos los contraargumentos"},
+    "surv_contested":  {"English": "Challenged",                    "Español": "Cuestionado"},
+    "surv_unattacked": {"English": "Unchallenged",                  "Español": "Sin oposición"},
+    "surv_heading":    {"English": "Argument survivability",        "Español": "Resistencia argumentativa"},
+    "surv_map_summary":{
+        "English": "After all counterarguments: **{g}** claims survived all attacks, **{c}** are challenged, and **{u}** had none.",
+        "Español": "Tras los contraargumentos: **{g}** afirmaciones resistieron todos los ataques, **{c}** están cuestionadas y **{u}** no recibieron ninguno.",
+    },
+    # ── Restatement deduplication ────────────────────────────────────────────
+    "deduplicating":      {"English": "Detecting repeated claims…",
+                           "Español": "Detectando afirmaciones repetidas…"},
+    "restatement_label":  {"English": "Repeated claim — same as:",
+                           "Español": "Afirmación repetida — igual que:"},
+    "restatement_badge":  {"English": "repeated",
+                           "Español": "repetida"},
+    "restatement_report": {"English": "{n} repeated claim(s) detected and skipped in fact-check",
+                           "Español": "{n} afirmación(es) repetida(s) detectada(s) y omitida(s) en la verificación"},
+    # ── Dialectical stage labeling (van Eemeren & Grootendorst 2004) ────────
+    "stage_labeling":       {"English": "Detecting dialectical stages…",
+                             "Español": "Detectando etapas dialécticas…"},
+    "stage_timeline":       {"English": "Dialectical Stage Timeline",
+                             "Español": "Línea de tiempo dialéctica"},
+    "stage_confrontation":  {"English": "Confrontation",  "Español": "Confrontación"},
+    "stage_opening":        {"English": "Opening",         "Español": "Apertura"},
+    "stage_argumentation":  {"English": "Argumentation",  "Español": "Argumentación"},
+    "stage_concluding":     {"English": "Concluding",      "Español": "Conclusión"},
+    "stage_heading_report": {"English": "Dialectical stage participation",
+                             "Español": "Participación por etapa dialéctica"},
     # ── Rhetorical Profile sub-tab ───────────────────────────────────────────
     "subtab_rhetoric":    {"English": "Rhetorical Profile",          "Español": "Perfil retórico"},
     "run_rhetoric":       {"English": "Analyze Rhetoric",            "Español": "Analizar retórica"},
@@ -199,6 +253,16 @@ LABELS = {
     "rhetoric_footer":    {
         "English": "Rhetorical devices are not always flaws. Labels show technique, not quality.",
         "Español": "Los recursos retóricos no son siempre defectos. Las etiquetas indican técnica, no calidad.",
+    },
+    "rhetoric_rule_label": {
+        "English": "Rule {n} — {name}",
+        "Español": "Regla {n} — {name}",
+    },
+    "rhetoric_rule_names": {
+        "English": {1: "Freedom", 2: "Burden of proof", 3: "Standpoint",
+                    4: "Relevance", 7: "Argument scheme", 10: "Usage"},
+        "Español": {1: "Libertad", 2: "Carga de la prueba", 3: "Posición",
+                    4: "Relevancia", 7: "Esquema argumentativo", 10: "Uso del lenguaje"},
     },
     # ── Speaker Report sub-tab ───────────────────────────────────────────────
     "subtab_report":      {"English": "Speaker Report",             "Español": "Informe de hablantes"},
@@ -250,6 +314,37 @@ LABELS = {
     "prog_detect":         {"English": "Detecting response {i} of {n}…",
                             "Español": "Detectando respuesta {i} de {n}…"},
     # ── Pipeline settings ────────────────────────────────────────────────────
+    # ── Per-step download / import ──────────────────────────────────────────
+    "dl_verdicts":         {"English": "⬇ Fact-check results (.json)",
+                            "Español": "⬇ Resultados de verificación (.json)"},
+    "dl_responses":        {"English": "⬇ Response map (.json)",
+                            "Español": "⬇ Mapa de respuestas (.json)"},
+    "dl_rhetoric":         {"English": "⬇ Rhetoric analysis (.json)",
+                            "Español": "⬇ Análisis retórico (.json)"},
+    "load_results_expander": {"English": "⬆ Load saved results (fact-check / responses / rhetoric)",
+                              "Español": "⬆ Cargar resultados guardados (verificación / respuestas / retórica)"},
+    "upload_verdicts_label":  {"English": "Fact-check results JSON",
+                               "Español": "JSON de resultados de verificación"},
+    "upload_responses_label": {"English": "Response map JSON",
+                               "Español": "JSON del mapa de respuestas"},
+    "upload_rhetoric_label":  {"English": "Rhetoric analysis JSON",
+                               "Español": "JSON del análisis retórico"},
+    "load_verdicts_btn":   {"English": "Load",   "Español": "Cargar"},
+    "load_responses_btn":  {"English": "Load",   "Español": "Cargar"},
+    "load_rhetoric_btn":   {"English": "Load",   "Español": "Cargar"},
+    "verdicts_loaded":     {"English": "Fact-check results loaded.",
+                            "Español": "Resultados de verificación cargados."},
+    "responses_loaded":    {"English": "Response map loaded.",
+                            "Español": "Mapa de respuestas cargado."},
+    "rhetoric_loaded":     {"English": "Rhetoric analysis loaded.",
+                            "Español": "Análisis retórico cargado."},
+    "err_not_verdicts_json":  {"English": "File doesn't contain fact-check results.",
+                               "Español": "El archivo no contiene resultados de verificación."},
+    "err_not_responses_json": {"English": "File doesn't contain response-map data.",
+                               "Español": "El archivo no contiene datos del mapa de respuestas."},
+    "err_not_rhetoric_json":  {"English": "File doesn't contain rhetoric analysis data.",
+                               "Español": "El archivo no contiene datos de análisis retórico."},
+    # ── Pipeline settings ────────────────────────────────────────────────────
     "settings_expander":   {"English": "⚙️ Cost / quality settings",
                             "Español": "⚙️ Ajustes de coste / calidad"},
     "resp_model_label":    {"English": "Response detection model",
@@ -274,6 +369,53 @@ LABELS = {
             "La verificación solo se ejecuta en afirmaciones factuales / estadísticas / comparativas."
         ),
     },
+    # ── Debate motion ────────────────────────────────────────────────────────
+    "motion_label":  {
+        "English": "Debate motion or central question (optional)",
+        "Español": "Moción del debate o pregunta central (opcional)",
+    },
+    "motion_ph":     {
+        "English": "e.g. Free trade improves workers' wages",
+        "Español": "p.ej. El libre comercio mejora los salarios de los trabajadores",
+    },
+    "motion_help":   {
+        "English": "When provided, each claim is tagged as supporting (pro) or opposing (con) this motion.",
+        "Español": "Si se indica, cada afirmación se etiqueta como a favor o en contra de esta moción.",
+    },
+    # ── Qualifier plain-language display labels (per Section 8.1) ───────────
+    "qualifier_labels": {
+        "English": {
+            "definite":    "stated as fact",
+            "probable":    "probably",
+            "possible":    "possibly",
+            "speculative": "uncertain",
+        },
+        "Español": {
+            "definite":    "afirmado como hecho",
+            "probable":    "probablemente",
+            "possible":    "posiblemente",
+            "speculative": "incierto",
+        },
+    },
+    # ── Premises and Toulmin reasoning fields ───────────────────────────────
+    "evidence_cited":         {"English": "Evidence cited",            "Español": "Evidencia citada"},
+    "reasoning_details":      {"English": "Reasoning details",         "Español": "Detalles del razonamiento"},
+    "reasoning_used":         {"English": "∴ Reasoning used",          "Español": "∴ Razonamiento empleado"},
+    "acknowledged_exception": {"English": "⚠ Acknowledged exception",  "Español": "⚠ Excepción reconocida"},
+    "show_premises":          {"English": "Show supporting evidence", "Español": "Mostrar evidencia de apoyo"},
+    "show_reasoning_targets": {"English": "Show reasoning targets",   "Español": "Mostrar objetivos de inferencia"},
+    "legend_premise":         {"English": "Premise — supports parent claim", "Español": "Premisa — apoya la afirmación"},
+    "legend_inference_pt":    {"English": "Reasoning target — where an argument challenges the logic",
+                               "Español": "Objetivo de inferencia — donde un argumento cuestiona la lógica"},
+    "legend_dashed":          {"English": "Dashed arrow: evidence supports claim",
+                               "Español": "Flecha discontinua: evidencia apoya la afirmación"},
+    # ── Stance breakdown in Speaker Report ──────────────────────────────────
+    "stance_heading":  {"English": "Stance on motion",     "Español": "Posición sobre la moción"},
+    "stance_pro":      {"English": "For the motion",       "Español": "A favor"},
+    "stance_con":      {"English": "Against the motion",   "Español": "En contra"},
+    "stance_neutral":  {"English": "Neutral / off-topic",  "Español": "Neutral / fuera de tema"},
+    "stance_no_motion":{"English": "No motion was set — stance tracking is disabled.",
+                        "Español": "No se ha indicado ninguna moción — el seguimiento de posición está desactivado."},
     "saved_link_full":     {
         "English": "Transcript & analysis saved. Share this link:",
         "Español": "Transcripción y análisis guardados. Comparte este enlace:",
@@ -683,6 +825,14 @@ def main() -> None:
                         except Exception:
                             st.error(L("err_invalid_json"))
 
+            # ── Debate motion input ────────────────────────────────────────────
+            st.session_state["motion"] = st.text_input(
+                L("motion_label"),
+                value=st.session_state.get("motion", ""),
+                placeholder=L("motion_ph"),
+                help=L("motion_help"),
+            )
+
             # ── Run Analysis button ────────────────────────────────────────────
             if not anthropic_key:
                 st.warning(L("no_anthropic_an"))
@@ -704,9 +854,10 @@ def main() -> None:
                     turns = segment_turns(utterances_an)
                     prog.progress(5, text=L("prog_seg"))
 
+                    _motion = st.session_state.get("motion", "")
                     all_claims: list[dict] = []
                     for i, turn in enumerate(turns):
-                        claims = extract_claims_from_turn(turn, anthropic_key)
+                        claims = extract_claims_from_turn(turn, anthropic_key, motion=_motion)
                         all_claims.extend(claims)
                         pct = 5 + int((i + 1) / max(len(turns), 1) * 50)
                         prog.progress(pct, text=LABELS["prog_extract"][lang].format(i=i + 1, n=len(turns)))
@@ -720,6 +871,8 @@ def main() -> None:
 
                     prog.progress(85, text=L("prog_thread"))
                     threads = group_into_threads(classified, anthropic_key)
+                    prog.progress(93, text=L("deduplicating"))
+                    mark_restatements(classified, anthropic_key)
                     prog.progress(100, text=L("prog_done"))
 
                     st.session_state["analysis"] = {"claims": classified, "threads": threads}
@@ -752,11 +905,24 @@ def main() -> None:
             # ── Run Fact-Check button ──────────────────────────────────────────
             analysis = st.session_state.get("analysis")
             if analysis:
-                col_fc, col_fc_note = st.columns([1, 3])
+                col_fc, col_fc_note, col_fc_dl = st.columns([2, 3, 2])
                 with col_fc:
                     fc_clicked = st.button(L("run_factcheck"), disabled=not anthropic_key)
                 with col_fc_note:
                     st.caption(L("factcheck_cost"))
+                with col_fc_dl:
+                    if st.session_state.get("verdicts"):
+                        st.download_button(
+                            label     = L("dl_verdicts"),
+                            data      = json.dumps(
+                                {"type": "fact_check",
+                                 "verdicts": st.session_state["verdicts"]},
+                                indent=2, ensure_ascii=False,
+                            ).encode(),
+                            file_name = f"fact_check_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime      = "application/json",
+                            key       = "dl_verdicts_btn",
+                        )
 
                 # Claim types that can actually be verified against external evidence.
                 # Causal, interpretive, moral, and anecdotal claims almost always
@@ -769,6 +935,7 @@ def main() -> None:
                         if c.get("checkable")
                         and not c.get("satirical")
                         and c.get("claim_type") in _VERIFIABLE_TYPES
+                        and not c.get("restatement_of")
                     ]
                     verdicts: dict = {}
                     prog_fc = st.progress(
@@ -836,6 +1003,56 @@ def main() -> None:
                     _resp_model      = "claude-haiku-4-5-20251001" if _resp_model_choice == L("model_haiku") else "claude-sonnet-4-6"
                     _rhet_model      = "claude-haiku-4-5-20251001" if _rhet_model_choice == L("model_haiku") else "claude-sonnet-4-6"
                     _resp_batch_size = _resp_batch
+
+                    # ── Load saved results (verdicts / responses / rhetoric) ───
+                    with st.expander(L("load_results_expander")):
+                        _lv_col, _lr_col, _lrh_col = st.columns(3)
+
+                        with _lv_col:
+                            _vf = st.file_uploader(L("upload_verdicts_label"), type=["json"], key="ul_verdicts")
+                            if _vf and st.button(L("load_verdicts_btn"), key="btn_ul_verdicts"):
+                                try:
+                                    _d = json.loads(_vf.read())
+                                    if not isinstance(_d.get("verdicts"), dict):
+                                        st.error(L("err_not_verdicts_json"))
+                                    else:
+                                        st.session_state["verdicts"] = _d["verdicts"]
+                                        st.success(L("verdicts_loaded"))
+                                        st.rerun()
+                                except Exception:
+                                    st.error(L("err_invalid_json"))
+
+                        with _lr_col:
+                            _rf = st.file_uploader(L("upload_responses_label"), type=["json"], key="ul_responses")
+                            if _rf and st.button(L("load_responses_btn"), key="btn_ul_responses"):
+                                try:
+                                    _d = json.loads(_rf.read())
+                                    if not isinstance(_d.get("responses"), list):
+                                        st.error(L("err_not_responses_json"))
+                                    else:
+                                        st.session_state["responses"] = _d["responses"]
+                                        st.session_state["survivability"] = compute_grounded_extension(
+                                            analysis.get("claims", []),
+                                            _d["responses"],
+                                        )
+                                        st.success(L("responses_loaded"))
+                                        st.rerun()
+                                except Exception:
+                                    st.error(L("err_invalid_json"))
+
+                        with _lrh_col:
+                            _rhf = st.file_uploader(L("upload_rhetoric_label"), type=["json"], key="ul_rhetoric")
+                            if _rhf and st.button(L("load_rhetoric_btn"), key="btn_ul_rhetoric"):
+                                try:
+                                    _d = json.loads(_rhf.read())
+                                    if not isinstance(_d.get("rhetoric"), list):
+                                        st.error(L("err_not_rhetoric_json"))
+                                    else:
+                                        st.session_state["rhetoric"] = _d["rhetoric"]
+                                        st.success(L("rhetoric_loaded"))
+                                        st.rerun()
+                                except Exception:
+                                    st.error(L("err_invalid_json"))
 
                     # ── Dynamic cost estimates ─────────────────────────────────
                     # Rough per-API-call cost ranges (USD) for each model.
@@ -906,16 +1123,35 @@ def main() -> None:
                                 model=_resp_model,
                                 batch_size=_resp_batch_size,
                             )
+                            st.session_state["survivability"] = compute_grounded_extension(
+                                analysis.get("claims", []),
+                                st.session_state["responses"],
+                            )
                         except Exception as exc:
                             _prog_dr.empty()
                             st.error(str(exc))
 
                     # Analyze Rhetoric button
-                    col_rh, col_rh_note = st.columns([1, 3])
+                    col_rh, col_rh_note, col_rh_dl = st.columns([1, 2, 2])
                     with col_rh:
                         rh_clicked = st.button(L("run_rhetoric"), disabled=not anthropic_key)
                     with col_rh_note:
                         st.caption(_rh_note)
+                    with col_rh_dl:
+                        if st.session_state.get("rhetoric"):
+                            st.download_button(
+                                label     = L("dl_rhetoric"),
+                                data      = json.dumps(
+                                    {
+                                        "rhetoric": st.session_state["rhetoric"],
+                                        "stages":   st.session_state.get("stages", []),
+                                    },
+                                    indent=2, ensure_ascii=False,
+                                ).encode(),
+                                file_name = f"rhetoric_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                mime      = "application/json",
+                                key       = "dl_rhetoric_btn",
+                            )
 
                     if rh_clicked and anthropic_key:
                         turns_rh = segment_turns(utterances_an)
@@ -940,6 +1176,18 @@ def main() -> None:
                                 text=LABELS["rhetoric_progress"][lang].format(i=i + 1, n=len(turns_rh)),
                             )
                         st.session_state["rhetoric"] = rh_results
+                        # Stage labeling runs on the same turns (batched, Haiku)
+                        prog_rh.progress(100, text=L("stage_labeling"))
+                        label_dialectical_stages(turns_rh, anthropic_key)
+                        st.session_state["stages"] = [
+                            {
+                                "turn_index":        t["turn_index"],
+                                "speaker":           t["speaker"],
+                                "start_ms":          t["start_ms"],
+                                "dialectical_stage": t.get("dialectical_stage", "argumentation"),
+                            }
+                            for t in turns_rh
+                        ]
 
                     # Generate Speaker Report button
                     has_any_data = any([
@@ -1036,6 +1284,34 @@ def main() -> None:
                                 f'padding:2px 7px;font-size:0.82em;white-space:nowrap">{lbl}</span>'
                             )
 
+                        # Lookup helpers used in both table paths
+                        _claim_by_id = {c["id"]: c for c in claims}
+
+                        # Survivability icon helper (used in both table paths)
+                        _surv_ss = st.session_state.get("survivability", {})
+                        _SURV_ICON = {
+                            "grounded":   f'<span style="color:#2ca02c;font-weight:bold" title="{L("surv_grounded")}">●</span> ',
+                            "contested":  f'<span style="color:#ff7f0e;font-weight:bold" title="{L("surv_contested")}">●</span> ',
+                            "unattacked": f'<span style="color:#aaaaaa" title="{L("surv_unattacked")}">○</span> ',
+                        }
+
+                        def surv_icon(cid: str) -> str:
+                            return _SURV_ICON.get(_surv_ss.get(cid, ""), "")
+
+                        # Qualifier and stance helpers (used in both table paths)
+                        _QUAL_LABELS     = LABELS["qualifier_labels"][lang]
+                        _motion_for_tags = st.session_state.get("motion", "").strip()
+                        _STANCE_TAG = {
+                            "pro": (
+                                f'<span style="color:#2ca02c;font-size:0.78em;font-weight:bold"'
+                                f' title="{L("stance_pro")}">▲</span> '
+                            ),
+                            "con": (
+                                f'<span style="color:#d62728;font-size:0.78em;font-weight:bold"'
+                                f' title="{L("stance_con")}">▼</span> '
+                            ),
+                        }
+
                         # Table — HTML with badge column when verdicts present
                         if verdicts:
                             th = "padding:6px 8px;text-align:left;border-bottom:2px solid #dee2e6;font-size:0.88em"
@@ -1049,6 +1325,34 @@ def main() -> None:
                             for c in sorted_claims:
                                 v_key = verdicts.get(c["id"], {}).get("verdict", "")
                                 short = (c["text"][:120] + "…") if len(c["text"]) > 120 else c["text"]
+                                restat_id = c.get("restatement_of")
+                                if restat_id:
+                                    orig_text = _claim_by_id.get(restat_id, {}).get("text", "")
+                                    orig_preview = (orig_text[:60] + "…") if len(orig_text) > 60 else orig_text
+                                    restat_badge = (
+                                        f'<span style="background:#f0f0f0;border-radius:4px;'
+                                        f'padding:1px 5px;font-size:0.78em;color:#888">'
+                                        f'{L("restatement_badge")}</span>'
+                                    )
+                                    claim_cell = (
+                                        f'<span style="color:#aaaaaa;font-style:italic">'
+                                        f'{short}</span> {restat_badge}'
+                                        + (f'<br><small style="color:#aaaaaa">'
+                                           f'{L("restatement_label")} {orig_preview}</small>'
+                                           if orig_preview else "")
+                                    )
+                                else:
+                                    _qual_lbl   = _QUAL_LABELS.get(c.get("qualifier", ""), "")
+                                    _qual_html  = (
+                                        f'<br><small style="color:#888;font-style:italic">'
+                                        f'{_qual_lbl}</small>'
+                                        if _qual_lbl else ""
+                                    )
+                                    _stance_html = (
+                                        _STANCE_TAG.get(c.get("stance", ""), "")
+                                        if _motion_for_tags else ""
+                                    )
+                                    claim_cell = f"{surv_icon(c['id'])}{_stance_html}{short}{_qual_html}"
                                 rows_html += (
                                     f"<tr>"
                                     f"<td style='{td}'>{c.get('thread_id','')}</td>"
@@ -1057,7 +1361,7 @@ def main() -> None:
                                     f"<td style='{td}'>{c.get('claim_type','')}</td>"
                                     f"<td style='{td}'>{'yes' if c.get('checkable') else 'no'}</td>"
                                     f"<td style='{td}'>{badge(v_key)}</td>"
-                                    f"<td style='{td}'>{short}</td>"
+                                    f"<td style='{td}'>{claim_cell}</td>"
                                     f"</tr>"
                                 )
                             st.markdown(
@@ -1066,6 +1370,24 @@ def main() -> None:
                                 unsafe_allow_html=True,
                             )
                         else:
+                            def _claim_cell_plain(c: dict) -> str:
+                                short = (c["text"][:120] + "…") if len(c["text"]) > 120 else c["text"]
+                                restat_id = c.get("restatement_of")
+                                if restat_id:
+                                    orig_text = _claim_by_id.get(restat_id, {}).get("text", "")
+                                    orig_preview = (orig_text[:60] + "…") if len(orig_text) > 60 else orig_text
+                                    note = f" [{L('restatement_badge')}: {orig_preview}]" if orig_preview else f" [{L('restatement_badge')}]"
+                                    return short + note
+                                suffixes = []
+                                _ql = _QUAL_LABELS.get(c.get("qualifier", ""), "")
+                                if _ql:
+                                    suffixes.append(f"({_ql})")
+                                if _motion_for_tags and c.get("stance") in ("pro", "con"):
+                                    suffixes.append(
+                                        f"[{L('stance_pro') if c['stance'] == 'pro' else L('stance_con')}]"
+                                    )
+                                return short + (" " + " ".join(suffixes) if suffixes else "")
+
                             rows = [
                                 {
                                     L("col_thread"):    c.get("thread_id", ""),
@@ -1073,7 +1395,7 @@ def main() -> None:
                                     L("col_time"):      ms_to_ts(c.get("start_ms", 0)),
                                     L("col_type"):      c.get("claim_type", ""),
                                     L("col_checkable"): "yes" if c.get("checkable") else "no",
-                                    L("col_claim"):     (c["text"][:120] + "…") if len(c["text"]) > 120 else c["text"],
+                                    L("col_claim"):     _claim_cell_plain(c),
                                 }
                                 for c in sorted_claims
                             ]
@@ -1147,6 +1469,7 @@ def main() -> None:
                         # ── Verdict expanders ──────────────────────────────────
                         if verdicts:
                             st.divider()
+                            st.info(L("factcheck_disclaimer"))
                             aid_fb = st.session_state.get("_analysis_id", "")
                             for c in sorted_claims:
                                 vdict = verdicts.get(c["id"])
@@ -1157,6 +1480,44 @@ def main() -> None:
                                 short_text = (c["text"][:40] + "…") if len(c["text"]) > 40 else c["text"]
                                 with st.expander(f"[{ms_to_ts(c.get('start_ms', 0))}] {spk_lbl} — {short_text}"):
                                     st.markdown(f"**{c['text']}**")
+
+                                    # Qualifier + stance meta-line (small, muted)
+                                    _ql = LABELS["qualifier_labels"][lang].get(c.get("qualifier", ""), "")
+                                    _exp_parts = []
+                                    if _ql:
+                                        _exp_parts.append(f"<em>{_ql}</em>")
+                                    if st.session_state.get("motion", "").strip() and c.get("stance") in ("pro", "con"):
+                                        _sc = "#2ca02c" if c["stance"] == "pro" else "#d62728"
+                                        _sl = L("stance_pro") if c["stance"] == "pro" else L("stance_con")
+                                        _exp_parts.append(f'<span style="color:{_sc};font-size:0.85em">{_sl}</span>')
+                                    if _exp_parts:
+                                        st.markdown(
+                                            '<span style="color:#888;font-size:0.85em">'
+                                            + " &nbsp;·&nbsp; ".join(_exp_parts)
+                                            + "</span>",
+                                            unsafe_allow_html=True,
+                                        )
+
+                                    # Premises (evidence cited by the speaker for this claim)
+                                    _premises = c.get("premises", [])
+                                    if _premises:
+                                        with st.expander(L("evidence_cited")):
+                                            for _p in _premises:
+                                                st.markdown(f"- {_p}")
+
+                                    # Reasoning details — collapsed by default (Section 8 UI rule)
+                                    _warrant  = c.get("warrant_hint")
+                                    _rebuttal = c.get("rebuttal_cond")
+                                    if _warrant or _rebuttal:
+                                        with st.expander(L("reasoning_details")):
+                                            if _warrant:
+                                                st.markdown(
+                                                    f"**{L('reasoning_used')}:** {_warrant}"
+                                                )
+                                            if _rebuttal:
+                                                st.markdown(
+                                                    f"**{L('acknowledged_exception')}:** {_rebuttal}"
+                                                )
 
                                     # Translation toggle
                                     ui_lang_code = "en" if lang == "English" else "es"
@@ -1174,7 +1535,16 @@ def main() -> None:
                                     st.markdown("---")
 
                                     v_key = vdict.get("verdict", "")
-                                    st.markdown(badge(v_key), unsafe_allow_html=True)
+                                    _surv_status = _surv_ss.get(cid, "")
+                                    _surv_lbl = {
+                                        "grounded":   L("surv_grounded"),
+                                        "contested":  L("surv_contested"),
+                                        "unattacked": L("surv_unattacked"),
+                                    }.get(_surv_status, "")
+                                    _badge_row = badge(v_key)
+                                    if _surv_lbl:
+                                        _badge_row += f" &nbsp; {surv_icon(cid)}<small>{_surv_lbl}</small>"
+                                    st.markdown(_badge_row, unsafe_allow_html=True)
                                     conf_pct = int(vdict.get("confidence", 0.0) * 100)
                                     st.progress(conf_pct, text=f"{L('col_verdict')}: {conf_pct}%")
                                     st.markdown(vdict.get("explanation", ""))
@@ -1221,17 +1591,33 @@ def main() -> None:
                     if not responses:
                         st.info(L("run_detect_first"))
                     else:
+                        # Graph layer toggles (two columns — premises on by default)
+                        _tgl1, _tgl2 = st.columns(2)
+                        with _tgl1:
+                            show_premises_cb = st.checkbox(L("show_premises"), value=True)
+                        with _tgl2:
+                            show_rt_cb = st.checkbox(L("show_reasoning_targets"), value=False)
+
                         graph_html = build_graph_html(
                             analysis.get("claims", []),
                             responses,
                             speaker_names_an,
+                            survivability=st.session_state.get("survivability"),
+                            show_premises=show_premises_cb,
+                            show_reasoning_targets=show_rt_cb,
                         )
                         if graph_html:
                             components.html(graph_html, height=620, scrolling=False)
+                            st.download_button(
+                                label     = "⬇  Download argument map (.html)",
+                                data      = graph_html.encode("utf-8"),
+                                file_name = f"argument_map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                                mime      = "text/html",
+                            )
                         else:
                             st.info(L("analysis_no_claims"))
 
-                        # Legend
+                        # ── Legend ─────────────────────────────────────────────
                         st.markdown(f"#### {L('legend_heading')}")
                         _SPEAKER_COLORS_VIS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
                         spk_sorted = sorted({c["speaker"] for c in analysis.get("claims", [])})
@@ -1241,81 +1627,178 @@ def main() -> None:
                             f'{speaker_names_an.get(s, s)}'
                             for i, s in enumerate(spk_sorted)
                         )
+                        # Claim shapes: circles for factual, diamonds for causal, etc.
                         shape_legend = (
                             "⬤ factual / statistical / comparative &nbsp;&nbsp;"
                             "◆ causal / predictive &nbsp;&nbsp;"
                             "■ definitional / interpretive &nbsp;&nbsp;"
                             "▲ moral / anecdotal"
                         )
+                        # Solid-line response edges
                         edge_legend = (
-                            '<span style="color:#d62728">━</span> refutes &nbsp;&nbsp;'
+                            '<span style="color:#d62728">━</span> directly contradicts &nbsp;&nbsp;'
+                            '<span style="color:#e377c2">━</span> ' + L("legend_undercuts") + ' &nbsp;&nbsp;'
                             '<span style="color:#2ca02c">━</span> supports &nbsp;&nbsp;'
                             '<span style="color:#ff7f0e">━</span> weakens / concedes &nbsp;&nbsp;'
                             '<span style="color:#9467bd">━</span> reframes &nbsp;&nbsp;'
                             '<span style="color:#aaaaaa">━</span> evades / ignores'
                         )
+                        surv_ss = st.session_state.get("survivability", {})
+                        surv_legend = (
+                            '<span style="color:#2ca02c;font-weight:bold">━━</span> '
+                            + L("surv_grounded") + ' &nbsp;&nbsp;'
+                            '<span style="color:#ff7f0e;font-weight:bold">━━</span> '
+                            + L("surv_contested") + ' &nbsp;&nbsp;'
+                            '<span style="color:#aaaaaa">━━</span> '
+                            + L("surv_unattacked")
+                        )
+                        # Conditional: premise layer
+                        _prem_legend = (
+                            f"<br>**{L('show_premises')}:** "
+                            f'<span style="background:#cccccc;border-radius:2px;'
+                            f'padding:1px 6px;font-size:0.85em">□</span> '
+                            f"{L('legend_premise')} &nbsp; "
+                            f'<span style="color:#aaaaaa;font-size:0.9em">- - ▶</span> '
+                            f"{L('legend_dashed')}"
+                            if show_premises_cb else ""
+                        )
+                        # Conditional: reasoning-target layer
+                        _rt_legend = (
+                            f"<br>**{L('show_reasoning_targets')}:** "
+                            f'<span style="color:#e377c2">◆</span> '
+                            f"{L('legend_inference_pt')}"
+                            if show_rt_cb else ""
+                        )
                         st.markdown(
                             f"**{L('legend_node_color')}:** {spk_legend}<br>"
-                            f"**{L('legend_node_shape')}:** {shape_legend}<br>"
-                            f"**{L('legend_edge_color')}:** {edge_legend}",
+                            f"**{L('legend_node_shape')} (claims):** {shape_legend}<br>"
+                            f"**{L('legend_edge_color')}:** {edge_legend}<br>"
+                            f"**{L('surv_heading')} (border):** {surv_legend}"
+                            + _prem_legend + _rt_legend,
                             unsafe_allow_html=True,
                         )
+                        # ── Survivability summary sentence ──────────────────────
+                        if surv_ss:
+                            _sg = sum(1 for s in surv_ss.values() if s == "grounded")
+                            _sc = sum(1 for s in surv_ss.values() if s == "contested")
+                            _su = sum(1 for s in surv_ss.values() if s == "unattacked")
+                            st.markdown(LABELS["surv_map_summary"][lang].format(g=_sg, c=_sc, u=_su))
 
                 # ── Rhetorical Profile sub-tab ─────────────────────────────────
                 with subtab_rhetoric:
+                    _stages  = st.session_state.get("stages")
                     rhetoric = st.session_state.get("rhetoric")
-                    if not rhetoric:
+                    if not rhetoric and not _stages:
                         st.info(L("rhetoric_run_first"))
                     else:
-                        # Group findings by speaker
-                        spk_rhetoric: dict[str, list[dict]] = defaultdict(list)
-                        for item in rhetoric:
-                            spk_rhetoric[item["speaker"]].append(item)
-
-                        for sid in sorted(spk_rhetoric.keys()):
-                            turns_for_spk = spk_rhetoric[sid]
-                            all_fallacies = [
-                                {**f, "start_ms": t["start_ms"]}
-                                for t in turns_for_spk
-                                for f in t.get("fallacies", [])
-                            ]
-                            all_devices = [
-                                {**d, "start_ms": t["start_ms"]}
-                                for t in turns_for_spk
-                                for d in t.get("rhetorical_devices", [])
-                                if not d.get("is_fallacy", False)
-                            ]
-                            spk_name = speaker_names_an.get(sid, sid)
-                            title = (
-                                f"{spk_name} — "
-                                f"{len(all_fallacies)} {L('rhetoric_fallacies').lower()} · "
-                                f"{len(all_devices)} {L('rhetoric_devices').lower()}"
+                        # ── Stage timeline ─────────────────────────────────────
+                        if _stages:
+                            st.subheader(L("stage_timeline"))
+                            _STAGE_COLORS = {
+                                "confrontation": "#d62728",
+                                "opening":       "#1f77b4",
+                                "argumentation": "#2ca02c",
+                                "concluding":    "#9467bd",
+                            }
+                            _STAGE_LABEL_KEY = {
+                                "confrontation": "stage_confrontation",
+                                "opening":       "stage_opening",
+                                "argumentation": "stage_argumentation",
+                                "concluding":    "stage_concluding",
+                            }
+                            # Distribution bar chart — turns per stage
+                            _stage_counts: dict[str, int] = {}
+                            for _si in _stages:
+                                _stg = _si.get("dialectical_stage", "argumentation")
+                                _lbl = L(_STAGE_LABEL_KEY.get(_stg, "stage_argumentation"))
+                                _stage_counts[_lbl] = _stage_counts.get(_lbl, 0) + 1
+                            _stage_df = pd.DataFrame.from_dict(
+                                _stage_counts, orient="index", columns=["turns"]
                             )
-                            with st.expander(title, expanded=len(all_fallacies) > 0):
-                                if all_fallacies:
-                                    st.markdown(f"**{L('rhetoric_fallacies')}**")
-                                    for f in all_fallacies:
-                                        ts = ms_to_ts(f["start_ms"])
-                                        st.markdown(
-                                            f"[{ts}] **{f.get('label', f.get('type', ''))}**"
-                                            f" — \"{f.get('quote', '')}\""
-                                        )
-                                        st.markdown(f"> {f.get('explanation', '')}")
-                                if all_devices:
-                                    if all_fallacies:
-                                        st.markdown("---")
-                                    st.markdown(f"**{L('rhetoric_devices')}**")
-                                    for d in all_devices:
-                                        ts = ms_to_ts(d["start_ms"])
-                                        st.markdown(
-                                            f"[{ts}] **{d.get('label', d.get('type', ''))}**"
-                                            f" — \"{d.get('quote', '')}\""
-                                        )
-                                        st.markdown(f"> {d.get('explanation', '')}")
-                                if not all_fallacies and not all_devices:
-                                    st.caption("—")
+                            st.bar_chart(_stage_df, use_container_width=True)
+                            # Compact colored turn-by-turn sequence
+                            _boxes = []
+                            for _si in sorted(_stages, key=lambda x: x.get("turn_index", 0)):
+                                _stg    = _si.get("dialectical_stage", "argumentation")
+                                _color  = _STAGE_COLORS.get(_stg, "#cccccc")
+                                _ts     = ms_to_ts(_si.get("start_ms", 0))
+                                _spknm  = speaker_names_an.get(_si["speaker"], _si["speaker"])
+                                _stglbl = L(_STAGE_LABEL_KEY.get(_stg, "stage_argumentation"))
+                                _boxes.append(
+                                    f'<span style="background:{_color};color:#fff;border-radius:3px;'
+                                    f'padding:2px 7px;font-size:0.75em;white-space:nowrap">'
+                                    f'[{_ts}] {_spknm} · {_stglbl}</span>'
+                                )
+                            st.markdown(
+                                '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:8px 0">'
+                                + " ".join(_boxes) + "</div>",
+                                unsafe_allow_html=True,
+                            )
+                            st.divider()
 
-                        st.caption(L("rhetoric_footer"))
+                        # ── Per-speaker rhetoric ───────────────────────────────
+                        if rhetoric:
+                            # Group findings by speaker
+                            spk_rhetoric: dict[str, list[dict]] = defaultdict(list)
+                            for item in rhetoric:
+                                spk_rhetoric[item["speaker"]].append(item)
+
+                            for sid in sorted(spk_rhetoric.keys()):
+                                turns_for_spk = spk_rhetoric[sid]
+                                all_fallacies = [
+                                    {**f, "start_ms": t["start_ms"]}
+                                    for t in turns_for_spk
+                                    for f in t.get("fallacies", [])
+                                ]
+                                all_devices = [
+                                    {**d, "start_ms": t["start_ms"]}
+                                    for t in turns_for_spk
+                                    for d in t.get("rhetorical_devices", [])
+                                    if not d.get("is_fallacy", False)
+                                ]
+                                spk_name = speaker_names_an.get(sid, sid)
+                                title = (
+                                    f"{spk_name} — "
+                                    f"{len(all_fallacies)} {L('rhetoric_fallacies').lower()} · "
+                                    f"{len(all_devices)} {L('rhetoric_devices').lower()}"
+                                )
+                                with st.expander(title, expanded=len(all_fallacies) > 0):
+                                    if all_fallacies:
+                                        st.markdown(f"**{L('rhetoric_fallacies')}**")
+                                        _rule_names = LABELS["rhetoric_rule_names"][lang]
+                                        for f in all_fallacies:
+                                            ts = ms_to_ts(f["start_ms"])
+                                            _rule_n = f.get("violated_rule")
+                                            _rule_tag = ""
+                                            if _rule_n and _rule_n in _rule_names:
+                                                _rule_tag = (
+                                                    ' <small style="color:#888;font-weight:normal">('
+                                                    + LABELS["rhetoric_rule_label"][lang].format(
+                                                        n=_rule_n, name=_rule_names[_rule_n]
+                                                    )
+                                                    + ")</small>"
+                                                )
+                                            st.markdown(
+                                                f"[{ts}] **{f.get('label', f.get('type', ''))}**"
+                                                f" — \"{f.get('quote', '')}\"{_rule_tag}",
+                                                unsafe_allow_html=True,
+                                            )
+                                            st.markdown(f"> {f.get('explanation', '')}")
+                                    if all_devices:
+                                        if all_fallacies:
+                                            st.markdown("---")
+                                        st.markdown(f"**{L('rhetoric_devices')}**")
+                                        for d in all_devices:
+                                            ts = ms_to_ts(d["start_ms"])
+                                            st.markdown(
+                                                f"[{ts}] **{d.get('label', d.get('type', ''))}**"
+                                                f" — \"{d.get('quote', '')}\""
+                                            )
+                                            st.markdown(f"> {d.get('explanation', '')}")
+                                    if not all_fallacies and not all_devices:
+                                        st.caption("—")
+
+                            st.caption(L("rhetoric_footer"))
 
                 # ── Speaker Report sub-tab ─────────────────────────────────────
                 with subtab_report:
@@ -1358,6 +1841,56 @@ def main() -> None:
                             mc2.metric(L("metric_factchecked"),  sup_str)
                             mc3.metric(L("metric_direct_resp"),  dr_str)
                             mc4.metric(L("metric_fallacies"),    str(score.get("fallacy_count", 0)))
+
+                            # Stance breakdown (only shown when a motion was set)
+                            _motion_set = st.session_state.get("motion", "").strip()
+                            _spk_claims = [
+                                c for c in analysis.get("claims", [])
+                                if c["speaker"] == sid
+                            ]
+                            if _motion_set and _spk_claims:
+                                st.caption(L("stance_heading"))
+                                _n_pro     = sum(1 for c in _spk_claims if c.get("stance") == "pro")
+                                _n_con     = sum(1 for c in _spk_claims if c.get("stance") == "con")
+                                _n_neutral = sum(1 for c in _spk_claims if c.get("stance", "neutral") == "neutral")
+                                sc1, sc2, sc3 = st.columns(3)
+                                sc1.metric(L("stance_pro"),     _n_pro)
+                                sc2.metric(L("stance_con"),     _n_con)
+                                sc3.metric(L("stance_neutral"), _n_neutral)
+
+                            # Survivability breakdown (only when detect_responses has run)
+                            _surv_report = st.session_state.get("survivability", {})
+                            if _surv_report and _spk_claims:
+                                st.caption(L("surv_heading"))
+                                _sg = sum(1 for c in _spk_claims if _surv_report.get(c["id"]) == "grounded")
+                                _sc = sum(1 for c in _spk_claims if _surv_report.get(c["id"]) == "contested")
+                                _su = sum(1 for c in _spk_claims if _surv_report.get(c["id"]) == "unattacked")
+                                sv1, sv2, sv3 = st.columns(3)
+                                sv1.metric(L("surv_grounded"),   _sg)
+                                sv2.metric(L("surv_contested"),  _sc)
+                                sv3.metric(L("surv_unattacked"), _su)
+
+                            # Restatement count
+                            _n_restat = sum(1 for c in _spk_claims if c.get("restatement_of"))
+                            if _n_restat:
+                                st.caption(
+                                    LABELS["restatement_report"][lang].format(n=_n_restat)
+                                )
+
+                            # Dialectical stage breakdown (only when stage analysis has run)
+                            _stages_report = st.session_state.get("stages", [])
+                            _spk_stages = [s for s in _stages_report if s["speaker"] == sid]
+                            if _spk_stages:
+                                st.caption(L("stage_heading_report"))
+                                _n_conf = sum(1 for s in _spk_stages if s.get("dialectical_stage") == "confrontation")
+                                _n_open = sum(1 for s in _spk_stages if s.get("dialectical_stage") == "opening")
+                                _n_arg  = sum(1 for s in _spk_stages if s.get("dialectical_stage") == "argumentation")
+                                _n_conc = sum(1 for s in _spk_stages if s.get("dialectical_stage") == "concluding")
+                                sg1, sg2, sg3, sg4 = st.columns(4)
+                                sg1.metric(L("stage_confrontation"), _n_conf)
+                                sg2.metric(L("stage_opening"),       _n_open)
+                                sg3.metric(L("stage_argumentation"), _n_arg)
+                                sg4.metric(L("stage_concluding"),    _n_conc)
 
                             # Verdict bar chart (only non-zero verdicts)
                             verdict_counts = {
