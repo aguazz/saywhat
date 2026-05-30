@@ -224,6 +224,31 @@ LABELS = {
     "chart_verdicts":      {"English": "Verdict distribution",      "Español": "Distribución de veredictos"},
     "btn_dl_analysis_pdf": {"English": "⬇  Download Analysis PDF",  "Español": "⬇  Descargar PDF de análisis"},
     "btn_dl_analysis_json":{"English": "⬇  Download Analysis JSON", "Español": "⬇  Descargar JSON de análisis"},
+    # ── JSON import ──────────────────────────────────────────────────────────
+    "upload_json_label":   {"English": "Upload saved transcript JSON",
+                            "Español": "Subir JSON de transcripción guardado"},
+    "upload_json_help":    {"English": "Exported from Transcript tab → ⬇ Download JSON",
+                            "Español": "Exportado desde Transcripción → ⬇ Descargar JSON"},
+    "load_json_btn":       {"English": "Load transcript from JSON",  "Español": "Cargar transcripción desde JSON"},
+    "json_loaded":         {"English": "Transcript loaded from JSON file.",
+                            "Español": "Transcripción cargada desde archivo JSON."},
+    "upload_analysis_expander": {"English": "Load saved analysis JSON",
+                                 "Español": "Cargar JSON de análisis guardado"},
+    "upload_analysis_label":{"English": "Upload analysis JSON",      "Español": "Subir JSON de análisis"},
+    "upload_analysis_help": {"English": "Exported from Analysis tab → ⬇ Download Analysis JSON",
+                             "Español": "Exportado desde Análisis → ⬇ Descargar JSON de análisis"},
+    "load_analysis_json_btn":{"English": "Load analysis",            "Español": "Cargar análisis"},
+    "analysis_json_loaded":{"English": "Analysis loaded from JSON file.",
+                            "Español": "Análisis cargado desde archivo JSON."},
+    "err_invalid_json":    {"English": "Could not read the JSON file — check it is valid.",
+                            "Español": "No se pudo leer el archivo JSON — comprueba que es válido."},
+    "err_not_transcript_json": {"English": "This file does not contain transcript data (no 'utterances' key).",
+                                "Español": "Este archivo no contiene datos de transcripción (falta clave 'utterances')."},
+    "err_not_analysis_json":   {"English": "This file does not contain analysis data (no 'analysis.claims' key).",
+                                "Español": "Este archivo no contiene datos de análisis (falta 'analysis.claims')."},
+    # ── Detect Responses progress ────────────────────────────────────────────
+    "prog_detect":         {"English": "Detecting response {i} of {n}…",
+                            "Español": "Detectando respuesta {i} de {n}…"},
     "saved_link_full":     {
         "English": "Transcript & analysis saved. Share this link:",
         "Español": "Transcripción y análisis guardados. Comparte este enlace:",
@@ -356,6 +381,32 @@ def main() -> None:
         st.caption(
             LABELS["file_info"][lang].format(name=uploaded.name, size=f"{size_mb:.1f} MB")
         )
+
+    # ── Transcript JSON import ───────────────────────────────────────────────
+    st.markdown(
+        f'<p style="text-align:center;color:#888;margin:4px 0">{L("or")}</p>',
+        unsafe_allow_html=True,
+    )
+    json_tx_file = st.file_uploader(
+        L("upload_json_label"), type=["json"],
+        help=L("upload_json_help"), key="json_transcript_upload",
+    )
+    if json_tx_file is not None:
+        if st.button(L("load_json_btn")):
+            try:
+                data = json.loads(json_tx_file.read())
+                if "utterances" not in data:
+                    st.error(L("err_not_transcript_json"))
+                else:
+                    st.session_state["transcript"] = data
+                    for key in ("analysis", "verdicts", "responses", "rhetoric",
+                                "speaker_report", "_saved_link", "_has_analysis_link",
+                                "_current_id", "analysis_id"):
+                        st.session_state.pop(key, None)
+                    st.success(L("json_loaded"))
+                    st.rerun()
+            except Exception:
+                st.error(L("err_invalid_json"))
 
     if st.button(L("btn"), type="primary"):
         has_url  = bool(url.strip())
@@ -569,6 +620,30 @@ def main() -> None:
                 for sid in speakers_an
             }
 
+            # ── Analysis JSON import ───────────────────────────────────────────
+            with st.expander(L("upload_analysis_expander")):
+                json_an_file = st.file_uploader(
+                    L("upload_analysis_label"), type=["json"],
+                    help=L("upload_analysis_help"), key="json_analysis_upload",
+                )
+                if json_an_file is not None:
+                    if st.button(L("load_analysis_json_btn")):
+                        try:
+                            data = json.loads(json_an_file.read())
+                            an = data.get("analysis", {})
+                            if not isinstance(an.get("claims"), list):
+                                st.error(L("err_not_analysis_json"))
+                            else:
+                                st.session_state["analysis"]       = an
+                                st.session_state["verdicts"]       = data.get("verdicts", {})
+                                st.session_state["speaker_report"] = data.get("speaker_report", {})
+                                st.session_state.pop("responses", None)
+                                st.session_state.pop("rhetoric", None)
+                                st.success(L("analysis_json_loaded"))
+                                st.rerun()
+                        except Exception:
+                            st.error(L("err_invalid_json"))
+
             # ── Run Analysis button ────────────────────────────────────────────
             if not anthropic_key:
                 st.warning(L("no_anthropic_an"))
@@ -689,15 +764,26 @@ def main() -> None:
                         st.caption(L("detect_responses_note"))
 
                     if dr_clicked and anthropic_key:
-                        with st.spinner(L("detecting_responses")):
-                            try:
-                                all_sorted = sorted(
-                                    analysis.get("claims", []),
-                                    key=lambda c: c.get("start_ms", 0),
-                                )
-                                st.session_state["responses"] = detect_responses(all_sorted, anthropic_key)
-                            except Exception as exc:
-                                st.error(str(exc))
+                        _dr_claims = sorted(
+                            analysis.get("claims", []),
+                            key=lambda c: c.get("start_ms", 0),
+                        )
+                        _dr_total = max(len(_dr_claims) - 1, 1)
+                        _prog_dr  = st.progress(
+                            0,
+                            text=LABELS["prog_detect"][lang].format(i=0, n=_dr_total),
+                        )
+                        def _dr_progress(i: int, n: int) -> None:
+                            _prog_dr.progress(
+                                int(i / max(n, 1) * 100),
+                                text=LABELS["prog_detect"][lang].format(i=i, n=n),
+                            )
+                        try:
+                            st.session_state["responses"] = detect_responses(
+                                _dr_claims, anthropic_key, on_progress=_dr_progress,
+                            )
+                        except Exception as exc:
+                            st.error(str(exc))
 
                     # Analyze Rhetoric button
                     col_rh, col_rh_note = st.columns([1, 3])
