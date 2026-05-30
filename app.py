@@ -712,7 +712,11 @@ def main() -> None:
                     if _tid_an:
                         st.session_state["_saved_link"]      = f"{_base_an}?id={_tid_an}&analysis={aid}"
                         st.session_state["_has_analysis_link"] = True
-                    st.query_params["analysis"] = aid
+
+                    # Force a clean re-render so the results appear immediately.
+                    # (Setting st.query_params mid-run can interrupt rendering in
+                    # some Streamlit versions; st.rerun() is the safe alternative.)
+                    st.rerun()
 
                 except Exception as e:
                     fail_analysis(aid, str(e))
@@ -997,18 +1001,24 @@ def main() -> None:
                         dl_col1, dl_col2 = st.columns(2)
                         with dl_col1:
                             _an_title = t.get("_title", "Debate") if t else "Debate"
-                            st.download_button(
-                                label     = L("btn_dl_analysis_pdf"),
-                                data      = build_analysis_pdf(
+                            try:
+                                _pdf_bytes = build_analysis_pdf(
                                     claims        = analysis.get("claims", []),
                                     threads       = analysis.get("threads", []),
                                     speaker_names = speaker_names_an,
                                     speaker_report= st.session_state.get("speaker_report", {}),
                                     verdicts      = st.session_state.get("verdicts", {}),
                                     title         = _an_title,
-                                ),
+                                )
+                            except Exception as _pdf_err:
+                                _pdf_bytes = b""
+                                st.caption(f"PDF unavailable: {_pdf_err}")
+                            st.download_button(
+                                label     = L("btn_dl_analysis_pdf"),
+                                data      = _pdf_bytes,
                                 file_name = f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                                 mime      = "application/pdf",
+                                disabled  = not _pdf_bytes,
                             )
                         with dl_col2:
                             _export_json = json.dumps(
