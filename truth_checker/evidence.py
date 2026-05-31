@@ -1,12 +1,14 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 
 import requests
 
 logger = logging.getLogger(__name__)
 
-_WIKI_TIMEOUT = 8   # Wikipedia API is usually fast but Streamlit Cloud adds latency
-_SS_TIMEOUT   = 12  # Semantic Scholar can be slower under load
+_WIKI_TIMEOUT = 8
+_DDG_TIMEOUT  = 6
+_SS_TIMEOUT   = 12
 
 
 # ---------------------------------------------------------------------------
@@ -18,7 +20,7 @@ def _wiki_base(lang: str) -> str:
 
 
 def _wiki_search(query: str, lang: str) -> list[str]:
-    """Return a list of page titles matching the query (up to 3)."""
+    """Return up to 3 page titles matching the query."""
     try:
         r = requests.get(
             _wiki_base(lang),
@@ -39,7 +41,7 @@ def _wiki_search(query: str, lang: str) -> list[str]:
 
 
 def _wiki_extract(title: str, lang: str) -> dict | None:
-    """Fetch the introductory extract for a Wikipedia page title."""
+    """Fetch the introductory extract for a Wikipedia page (up to 600 chars)."""
     try:
         r = requests.get(
             _wiki_base(lang),
@@ -55,7 +57,6 @@ def _wiki_extract(title: str, lang: str) -> dict | None:
         )
         r.raise_for_status()
         pages = r.json().get("query", {}).get("pages", {})
-        # Pages is keyed by page_id; negative IDs mean the page was not found
         for page_id, page in pages.items():
             if int(page_id) < 0:
                 return None
@@ -65,7 +66,7 @@ def _wiki_extract(title: str, lang: str) -> dict | None:
             url = f"https://{lang}.wikipedia.org/wiki/{quote(page['title'].replace(' ', '_'))}"
             return {
                 "title":   page["title"],
-                "snippet": extract[:400],
+                "snippet": extract[:600],
                 "url":     url,
                 "source":  "wikipedia",
             }
@@ -75,19 +76,69 @@ def _wiki_extract(title: str, lang: str) -> dict | None:
 
 
 def _fetch_wikipedia(query: str, language: str) -> list[dict]:
-    """Query Wikipedia (primary language, then English fallback)."""
+    """Query Wikipedia in the debate language, then English fallback. Returns up to 2 pages."""
     results: list[dict] = []
-
     for lang in ([language, "en"] if language != "en" else ["en"]):
         titles = _wiki_search(query, lang)
-        for title in titles[:1]:   # only top result gets a full extract
+        for title in titles[:2]:        # top 2 results (was 1)
             item = _wiki_extract(title, lang)
             if item:
                 results.append(item)
         if results:
-            break   # stop at first language that returns something
-
+            break
     return results
+
+
+# ---------------------------------------------------------------------------
+# DuckDuckGo Instant Answer  (free, no API key)
+# ---------------------------------------------------------------------------
+
+def _fetch_duckduckgo(query: str) -> list[dict]:
+    """
+    Query the DuckDuckGo Zero-Click / Instant Answer API.
+
+    Returns curated topic summaries (often Wikipedia-backed but formatted
+    differently, and catches answers the Wikipedia search misses).
+    Free — no API key required.
+    """
+    try:
+        r = requests.get(
+            "https://api.duckduckgo.com/",
+            params={
+                "q":           query,
+                "format":      "json",
+                "no_redirect": 1,
+                "no_html":     1,
+                "skip_disambig": 1,
+            },
+            timeout=_DDG_TIMEOUT,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except Exception as exc:
+        logger.warning("DuckDuckGo search failed (%s): %s", query, exc)
+        return []
+
+    results = []
+    # Main abstract — most useful result
+    if data.get("AbstractText") and data.get("AbstractURL"):
+        results.append({
+            "title":   data.get("Heading") or query,
+            "snippet": data["AbstractText"][:600],
+            "url":     data["AbstractURL"],
+            "source":  "duckduckgo",
+        })
+    # Direct computed answer (e.g. unit conversions, simple facts)
+    if data.get("Answer"):
+        answer_text = str(data["Answer"])
+        if len(answer_text) > 20:   # skip trivially short answers
+            results.append({
+                "title":   f"Quick answer: {query[:60]}",
+                "snippet": answer_text[:400],
+                "url":     data.get("AnswerURL") or "",
+                "source":  "duckduckgo",
+            })
+    return results[:2]
 
 
 # ---------------------------------------------------------------------------
@@ -95,14 +146,14 @@ def _fetch_wikipedia(query: str, language: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _fetch_semantic_scholar(query: str, max_results: int) -> list[dict]:
-    """Search Semantic Scholar and return filtered paper dicts."""
+    """Search Semantic Scholar for peer-reviewed papers."""
     try:
         r = requests.get(
             "https://api.semanticscholar.org/graph/v1/paper/search",
             params={
                 "query":  query,
                 "fields": "title,year,citationCount,abstract,paperId",
-                "limit":  max_results + 5,   # fetch extra to survive filtering
+                "limit":  max_results + 5,
             },
             timeout=_SS_TIMEOUT,
         )
@@ -114,21 +165,21 @@ def _fetch_semantic_scholar(query: str, max_results: int) -> list[dict]:
 
     results = []
     for paper in data:
-        if paper.get("citationCount", 0) < 5:
+        if paper.get("citationCount", 0) < 2:   # lowered from 5 — catches newer/niche work
             continue
         abstract = paper.get("abstract") or ""
         if not abstract:
             continue
         results.append({
             "title":          paper.get("title", ""),
-            "snippet":        abstract[:400],
+            "snippet":        abstract[:600],    # was 400
             "url":            f"https://semanticscholar.org/paper/{paper.get('paperId', '')}",
             "year":           paper.get("year"),
             "citation_count": paper.get("citationCount", 0),
             "source":         "semantic_scholar",
         })
 
-    return results
+    return results[:max_results]
 
 
 # ---------------------------------------------------------------------------
@@ -138,28 +189,44 @@ def _fetch_semantic_scholar(query: str, max_results: int) -> list[dict]:
 def retrieve_evidence(
     suggested_query: str,
     language: str = "es",
-    max_results: int = 5,
+    max_results: int = 8,
 ) -> list[dict]:
     """
-    Retrieve external evidence for a factual claim from Wikipedia and Semantic Scholar.
+    Retrieve external evidence for a factual claim from three free sources:
+      - Wikipedia (up to 2 pages in the debate language, then English)
+      - DuckDuckGo Instant Answer (curated topic summaries, no key needed)
+      - Semantic Scholar (peer-reviewed paper abstracts)
 
-    Wikipedia is queried first in the debate's language; falls back to English if
-    the primary-language search returns nothing. Semantic Scholar is always queried
-    in English (where coverage is highest).
-
+    All three are fetched in parallel to minimise latency.
     Returns up to max_results dicts, deduplicated by title (case-insensitive).
-    Returns [] if both APIs fail or produce no usable results.
+    Returns [] only if all three sources fail or return nothing.
     """
     if not suggested_query or not suggested_query.strip():
         return []
 
-    wiki_results = _fetch_wikipedia(suggested_query, language)
-    ss_results   = _fetch_semantic_scholar(suggested_query, max_results)
+    fetchers = {
+        "wiki": lambda: _fetch_wikipedia(suggested_query, language),
+        "ddg":  lambda: _fetch_duckduckgo(suggested_query),
+        "ss":   lambda: _fetch_semantic_scholar(suggested_query, max_results),
+    }
 
-    # Merge: Wikipedia first, then Semantic Scholar
+    all_results: list[dict] = []
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(fn): name for name, fn in fetchers.items()}
+        for future in as_completed(futures):
+            try:
+                all_results.extend(future.result())
+            except Exception as exc:
+                logger.warning("Evidence fetcher %s raised: %s", futures[future], exc)
+
+    # Deduplicate by title and cap at max_results
     seen: set[str] = set()
     merged: list[dict] = []
-    for item in wiki_results + ss_results:
+    # Prioritise Wikipedia and DDG (encyclopedic) over academic papers
+    source_order = {"wikipedia": 0, "duckduckgo": 1, "semantic_scholar": 2}
+    all_results.sort(key=lambda x: source_order.get(x.get("source", ""), 3))
+
+    for item in all_results:
         key = item["title"].lower().strip()
         if key in seen:
             continue

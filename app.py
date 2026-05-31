@@ -185,7 +185,30 @@ LABELS = {
                           "Español": "Traducción (automática)"},
     # ── Sub-tabs ─────────────────────────────────────────────────────────────
     "subtab_claims":     {"English": "Claims",               "Español": "Afirmaciones"},
+    "subtab_factcheck":  {"English": "Fact-Check",           "Español": "Verificación"},
     "subtab_map":        {"English": "Argument Map",         "Español": "Mapa de argumentos"},
+    # ── Fact-Check tab ───────────────────────────────────────────────────────
+    "fc_run_first": {
+        "English": "Run Fact-Check (button in the Claims tab) to see results here.",
+        "Español": "Ejecuta la verificación (botón en Afirmaciones) para ver los resultados aquí.",
+    },
+    "fc_checked":     {"English": "Claims checked",       "Español": "Afirmaciones verificadas"},
+    "fc_supported":   {"English": "Supported",            "Español": "Respaldadas"},
+    "fc_challenged":  {"English": "Challenged / False",   "Español": "Cuestionadas / Falsas"},
+    "fc_beyond":      {"English": "Beyond scope",         "Español": "Fuera de alcance"},
+    "fc_kb_col":      {"English": "Basis",                "Español": "Base"},
+    "fc_sources_col": {"English": "Sources",              "Español": "Fuentes"},
+    "fc_thread_col":  {"English": "Topic",                "Español": "Tema"},
+    "fc_disclaimer":  {
+        "English": (
+            "🧠 = verdict based on Claude's training knowledge  ·  "
+            "📚 = verdict grounded in retrieved sources (Wikipedia / DuckDuckGo / Semantic Scholar)"
+        ),
+        "Español": (
+            "🧠 = veredicto basado en el conocimiento de Claude  ·  "
+            "📚 = veredicto basado en fuentes recuperadas (Wikipedia / DuckDuckGo / Semantic Scholar)"
+        ),
+    },
     # ── Detect Responses ─────────────────────────────────────────────────────
     "detect_responses":  {"English": "Detect Responses",
                           "Español": "Detectar respuestas"},
@@ -968,8 +991,9 @@ def main() -> None:
 
             # ── Sub-tabs ───────────────────────────────────────────────────────
             if analysis:
-                subtab_claims, subtab_map, subtab_rhetoric, subtab_report = st.tabs(
-                    [L("subtab_claims"), L("subtab_map"), L("subtab_rhetoric"), L("subtab_report")]
+                subtab_claims, subtab_fc, subtab_map, subtab_rhetoric, subtab_report = st.tabs(
+                    [L("subtab_claims"), L("subtab_factcheck"), L("subtab_map"),
+                     L("subtab_rhetoric"), L("subtab_report")]
                 )
 
                 # ── Claims sub-tab ─────────────────────────────────────────────
@@ -1585,6 +1609,146 @@ def main() -> None:
                                                 pass
                                             st.session_state[fb_key] = False
                                             st.success(L("feedback_thanks"))
+
+                # ── Fact-Check sub-tab ────────────────────────────────────────
+                with subtab_fc:
+                    _fc_verdicts = st.session_state.get("verdicts", {})
+                    if not _fc_verdicts:
+                        st.info(L("fc_run_first"))
+                    else:
+                        _fc_all_claims = analysis.get("claims", [])
+                        # Claims that have a verdict
+                        _fc_checked = [c for c in _fc_all_claims if c["id"] in _fc_verdicts]
+
+                        _FC_VSTYLE = {
+                            "true":           ("#d4edda", L("verdict_true")),
+                            "partially_true": ("#fff3cd", L("verdict_partly_true")),
+                            "contested":      ("#fde8c8", L("verdict_contested")),
+                            "misleading":     ("#fde8c8", L("verdict_misleading")),
+                            "false":          ("#f8d7da", L("verdict_false")),
+                            "unverifiable":   ("#e2e3e5", L("verdict_unverifiable")),
+                            "subjective":     ("#e2e3e5", L("verdict_subjective")),
+                        }
+                        _VERDICT_SEV = {
+                            "false": 0, "misleading": 1, "contested": 2,
+                            "partially_true": 3, "true": 4,
+                            "unverifiable": 5, "subjective": 5,
+                        }
+                        _fc_checked_sorted = sorted(
+                            _fc_checked,
+                            key=lambda c: _VERDICT_SEV.get(
+                                _fc_verdicts[c["id"]].get("verdict", ""), 5
+                            ),
+                        )
+
+                        # ── Summary metrics ─────────────────────────────────────
+                        _vc: dict[str, int] = {}
+                        for _c in _fc_checked:
+                            _v = _fc_verdicts[_c["id"]].get("verdict", "")
+                            _vc[_v] = _vc.get(_v, 0) + 1
+
+                        _n_supported = _vc.get("true", 0) + _vc.get("partially_true", 0)
+                        _n_challenged = (_vc.get("false", 0) + _vc.get("misleading", 0)
+                                         + _vc.get("contested", 0))
+                        _n_beyond = _vc.get("unverifiable", 0) + _vc.get("subjective", 0)
+
+                        _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+                        _mc1.metric(L("fc_checked"),   len(_fc_checked))
+                        _mc2.metric(L("fc_supported"),  _n_supported)
+                        _mc3.metric(L("fc_challenged"), _n_challenged)
+                        _mc4.metric(L("fc_beyond"),     _n_beyond)
+
+                        st.caption(L("fc_disclaimer"))
+                        st.divider()
+
+                        # ── Overview table ──────────────────────────────────────
+                        _th = "padding:6px 8px;text-align:left;border-bottom:2px solid #dee2e6;font-size:0.85em"
+                        _td = "padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:0.82em;vertical-align:top"
+                        _fc_hdrs = [
+                            L("col_speaker"), L("fc_thread_col"), L("col_claim"),
+                            L("col_verdict"), "Conf.", L("fc_kb_col"), L("fc_sources_col"),
+                        ]
+                        _fc_hdr_html = "".join(f"<th style='{_th}'>{h}</th>" for h in _fc_hdrs)
+                        _fc_rows = ""
+                        for _c in _fc_checked_sorted:
+                            _vd      = _fc_verdicts[_c["id"]]
+                            _vkey    = _vd.get("verdict", "")
+                            _bg, _lbl = _FC_VSTYLE.get(_vkey, ("#e2e3e5", "—"))
+                            _conf    = int(_vd.get("confidence", 0) * 100)
+                            _kb      = _vd.get("knowledge_based", False)
+                            _n_src   = len(_vd.get("all_sources") or [])
+                            _spknm   = speaker_names_an.get(_c["speaker"], _c["speaker"])
+                            _thread  = _c.get("thread_topic", _c.get("thread_id", "—"))
+                            _thread_s = (_thread[:35] + "…") if len(_thread) > 35 else _thread
+                            _short   = (_c["text"][:90] + "…") if len(_c["text"]) > 90 else _c["text"]
+                            _vbadge  = (
+                                f'<span style="background:{_bg};border-radius:4px;'
+                                f'padding:2px 6px;font-size:0.8em;white-space:nowrap">{_lbl}</span>'
+                            )
+                            _kb_cell = "🧠" if _kb else ("📚" if _n_src > 0 else "—")
+                            _src_cell = str(_n_src) if _n_src > 0 else "—"
+                            _fc_rows += (
+                                f"<tr>"
+                                f"<td style='{_td}'>{_spknm}</td>"
+                                f"<td style='{_td};color:#888'>{_thread_s}</td>"
+                                f"<td style='{_td}'>{_short}</td>"
+                                f"<td style='{_td}'>{_vbadge}</td>"
+                                f"<td style='{_td}'>{_conf}%</td>"
+                                f"<td style='{_td};text-align:center'>{_kb_cell}</td>"
+                                f"<td style='{_td};text-align:center'>{_src_cell}</td>"
+                                f"</tr>"
+                            )
+                        st.markdown(
+                            f"<div style='overflow-x:auto'>"
+                            f"<table style='width:100%;border-collapse:collapse'>"
+                            f"<thead><tr>{_fc_hdr_html}</tr></thead>"
+                            f"<tbody>{_fc_rows}</tbody></table></div>",
+                            unsafe_allow_html=True,
+                        )
+
+                        st.divider()
+
+                        # ── Per-claim detail expanders ──────────────────────────
+                        for _c in _fc_checked_sorted:
+                            _vd     = _fc_verdicts[_c["id"]]
+                            _vkey   = _vd.get("verdict", "")
+                            _bg, _lbl = _FC_VSTYLE.get(_vkey, ("#e2e3e5", "—"))
+                            _conf   = int(_vd.get("confidence", 0) * 100)
+                            _kb     = _vd.get("knowledge_based", False)
+                            _spknm  = speaker_names_an.get(_c["speaker"], _c["speaker"])
+                            _short  = (_c["text"][:55] + "…") if len(_c["text"]) > 55 else _c["text"]
+                            with st.expander(f"[{ms_to_ts(_c.get('start_ms', 0))}] {_spknm} — {_short}"):
+                                st.markdown(f"**{_c['text']}**")
+                                # Knowledge-basis indicator
+                                if _kb:
+                                    st.caption("🧠 Assessed using Claude's training knowledge — no retrieved source")
+                                else:
+                                    st.caption("📚 Assessed using retrieved external sources")
+                                st.markdown("---")
+                                # Verdict badge + confidence
+                                st.markdown(
+                                    f'<span style="background:{_bg};border-radius:4px;'
+                                    f'padding:3px 10px;font-size:0.88em">{_lbl}</span>',
+                                    unsafe_allow_html=True,
+                                )
+                                st.progress(_conf, text=f"Confidence: {_conf}%")
+                                st.markdown(_vd.get("explanation", ""))
+                                # For / against (contested)
+                                if _vkey == "contested":
+                                    if _vd.get("for_the_claim"):
+                                        st.markdown(f"**{L('in_favour')}** {_vd['for_the_claim']}")
+                                    if _vd.get("against_the_claim"):
+                                        st.markdown(f"**{L('against')}** {_vd['against_the_claim']}")
+                                # Sources
+                                _srcs = _vd.get("all_sources") or []
+                                if _srcs:
+                                    st.markdown(f"**{L('sources')}**")
+                                    for _s in _srcs:
+                                        _st = _s.get("title", "Source") if isinstance(_s, dict) else str(_s)
+                                        _su = _s.get("url", "") if isinstance(_s, dict) else ""
+                                        st.markdown(f"- [{_st}]({_su})" if _su else f"- {_st}")
+                                elif _kb:
+                                    st.caption("No specific URL — based on scientific consensus in training data.")
 
                 # ── Argument Map sub-tab ───────────────────────────────────────
                 with subtab_map:
