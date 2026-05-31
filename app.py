@@ -304,7 +304,8 @@ LABELS = {
     },
     # ── Speaker Report sub-tab ───────────────────────────────────────────────
     "subtab_report":      {"English": "Speaker Report",             "Español": "Informe de hablantes"},
-    "run_report":         {"English": "Generate Speaker Report",    "Español": "Generar informe de hablantes"},
+    "run_report":         {"English": "Speaker Report",             "Español": "Informe de hablantes"},
+    "dl_speaker_report":  {"English": "⬇ Speaker report (.json)",  "Español": "⬇ Informe de hablantes (.json)"},
     "report_cost":        {"English": "Estimated cost: ~$0.01–$0.02 per speaker (Claude Sonnet)",
                            "Español": "Coste estimado: ~$0.01–$0.02 por hablante (Claude Sonnet)"},
     "report_need_data":   {
@@ -1315,11 +1316,23 @@ def main() -> None:
                     )
 
                     # ── Detect Responses button
-                    col_dr, col_dr_note = st.columns([1, 3])
+                    col_dr, col_dr_note, col_dr_dl = st.columns([1, 2, 2])
                     with col_dr:
                         dr_clicked = st.button(L("detect_responses"), disabled=not anthropic_key)
                     with col_dr_note:
                         st.caption(_dr_note)
+                    with col_dr_dl:
+                        if st.session_state.get("responses"):
+                            st.download_button(
+                                label     = L("dl_responses"),
+                                data      = json.dumps(
+                                    {"responses": st.session_state["responses"]},
+                                    indent=2, ensure_ascii=False,
+                                ).encode(),
+                                file_name = f"responses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                mime      = "application/json",
+                                key       = "dl_responses_btn",
+                            )
 
                     if dr_clicked and anthropic_key:
                         _dr_claims = sorted(
@@ -1410,13 +1423,13 @@ def main() -> None:
                             for t in turns_rh
                         ]
 
-                    # Generate Speaker Report button
+                    # Speaker Report button
                     has_any_data = any([
                         st.session_state.get("verdicts"),
                         st.session_state.get("responses"),
                         st.session_state.get("rhetoric"),
                     ])
-                    col_sr, col_sr_note = st.columns([1, 3])
+                    col_sr, col_sr_note, col_sr_dl = st.columns([1, 2, 2])
                     with col_sr:
                         sr_clicked = st.button(L("run_report"), disabled=not (anthropic_key and has_any_data))
                     with col_sr_note:
@@ -1424,6 +1437,18 @@ def main() -> None:
                             st.caption(L("report_need_data"))
                         else:
                             st.caption(L("report_cost"))
+                    with col_sr_dl:
+                        if st.session_state.get("speaker_report"):
+                            st.download_button(
+                                label     = L("dl_speaker_report"),
+                                data      = json.dumps(
+                                    {"speaker_report": st.session_state["speaker_report"]},
+                                    indent=2, ensure_ascii=False,
+                                ).encode(),
+                                file_name = f"speaker_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                mime      = "application/json",
+                                key       = "dl_speaker_report_btn",
+                            )
 
                     if sr_clicked and anthropic_key and has_any_data:
                         verdicts_ss  = st.session_state.get("verdicts", {})
