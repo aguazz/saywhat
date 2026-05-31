@@ -1831,7 +1831,18 @@ def main() -> None:
                             v = score.get("verdicts", {})
                             supported = v.get("true", 0) + v.get("partially_true", 0)
 
-                            rs_str = f"{rs:.0%}" if rs is not None else L("metric_na")
+                            # Reliability is only meaningful when there are conclusive verdicts.
+                            # If everything the fact-checker touched came back "beyond scope",
+                            # 0% is technically correct but communicates the wrong thing.
+                            _conclusive = sum(
+                                v.get(k, 0)
+                                for k in ("true", "partially_true", "false", "contested", "misleading")
+                            )
+                            rs_str = (
+                                f"{rs:.0%}"
+                                if rs is not None and _conclusive > 0
+                                else L("metric_na")
+                            )
                             dr_str = f"{dr:.0%}" if dr is not None else L("metric_na")
                             sup_str = LABELS["metric_supported"][lang].format(
                                 n=supported, total=checkable
@@ -1893,18 +1904,53 @@ def main() -> None:
                                 sg3.metric(L("stage_argumentation"), _n_arg)
                                 sg4.metric(L("stage_concluding"),    _n_conc)
 
-                            # Verdict bar chart (only non-zero verdicts)
-                            verdict_counts = {
-                                _VERDICT_LABEL_MAP[k]: cnt
-                                for k, cnt in v.items()
-                                if cnt > 0
+                            # Verdict breakdown — colored horizontal bars, ordered by outcome
+                            _VB_ORDER  = ["true", "partially_true", "contested",
+                                          "misleading", "false", "unverifiable", "subjective"]
+                            _VB_COLORS = {
+                                "true":           "#2ca02c",
+                                "partially_true": "#8bc34a",
+                                "contested":      "#ff7f0e",
+                                "misleading":     "#ff7f0e",
+                                "false":          "#d62728",
+                                "unverifiable":   "#9e9e9e",
+                                "subjective":     "#9e9e9e",
                             }
-                            if verdict_counts:
+                            _beyond_total = v.get("unverifiable", 0) + v.get("subjective", 0)
+                            _total_v = sum(v.get(k, 0) for k in _VB_ORDER)
+                            if _conclusive > 0 and _total_v > 0:
                                 st.caption(L("chart_verdicts"))
-                                chart_df = pd.DataFrame.from_dict(
-                                    verdict_counts, orient="index", columns=["count"]
+                                _bars = ""
+                                for _vk in _VB_ORDER:
+                                    _cnt = v.get(_vk, 0)
+                                    if _cnt == 0:
+                                        continue
+                                    _lbl   = _VERDICT_LABEL_MAP.get(_vk, _vk)
+                                    _col   = _VB_COLORS.get(_vk, "#9e9e9e")
+                                    _pct   = _cnt / _total_v * 100
+                                    _bars += (
+                                        f'<div style="display:flex;align-items:center;'
+                                        f'margin:4px 0;gap:8px;font-size:0.83em">'
+                                        f'<div style="min-width:130px;text-align:right;'
+                                        f'color:#888">{_lbl}</div>'
+                                        f'<div style="flex:1;background:rgba(128,128,128,0.15);'
+                                        f'border-radius:3px;height:18px">'
+                                        f'<div style="width:{_pct:.1f}%;background:{_col};'
+                                        f'border-radius:3px;height:100%;min-width:4px"></div></div>'
+                                        f'<div style="min-width:28px;color:#aaa">{_cnt}</div>'
+                                        f'</div>'
+                                    )
+                                st.markdown(_bars, unsafe_allow_html=True)
+                            elif _beyond_total > 0:
+                                # All checked claims were outside verifiable scope — no chart needed
+                                _beyond_note = (
+                                    f"{_beyond_total} claim(s) checked — all fell outside "
+                                    "what can be objectively verified (see fact-check disclaimer)."
+                                    if lang == "English" else
+                                    f"{_beyond_total} afirmación/es verificada/s — todas quedan "
+                                    "fuera del alcance verificable (ver aviso de verificación)."
                                 )
-                                st.bar_chart(chart_df, use_container_width=True)
+                                st.caption(_beyond_note)
 
                             # Narrative summary
                             st.info(summary)
