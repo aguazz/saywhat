@@ -185,7 +185,22 @@ LABELS = {
                           "Español": "Traducción (automática)"},
     # ── Sub-tabs ─────────────────────────────────────────────────────────────
     "subtab_claims":     {"English": "Claims",               "Español": "Afirmaciones"},
+    "subtab_timeline":   {"English": "Thread Timeline",      "Español": "Línea de tiempo"},
     "subtab_factcheck":  {"English": "Fact-Check",           "Español": "Verificación"},
+    # ── Thread Timeline tab ──────────────────────────────────────────────────
+    "timeline_no_analysis": {
+        "English": "Run Analysis first to see the thread timeline.",
+        "Español": "Ejecuta el análisis primero para ver la línea de tiempo.",
+    },
+    "timeline_select":   {"English": "Highlight a claim",    "Español": "Resaltar una afirmación"},
+    "timeline_all":      {"English": "— show all threads —", "Español": "— mostrar todos los hilos —"},
+    "timeline_selected": {"English": "Selected claim",        "Español": "Afirmación seleccionada"},
+    "timeline_thread":   {"English": "Thread",                "Español": "Hilo"},
+    "timeline_legend":   {"English": "Speaker colours:",      "Español": "Colores por hablante:"},
+    "timeline_hint": {
+        "English": "Hover over any block to see the claim text. Select a claim above to highlight it and dim the other threads.",
+        "Español": "Pasa el cursor sobre cualquier bloque para ver el texto. Selecciona una afirmación arriba para resaltarla.",
+    },
     "subtab_map":        {"English": "Argument Map",         "Español": "Mapa de argumentos"},
     # ── Fact-Check tab ───────────────────────────────────────────────────────
     "fc_run_first": {
@@ -507,6 +522,147 @@ def render_utterance(utt: dict, lang: str, speaker_names: dict) -> str:
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
+
+def _build_thread_timeline(
+    claims: list[dict],
+    threads: list[dict],
+    speaker_names: dict,
+    selected_claim_id: str | None = None,
+) -> str:
+    """
+    Build an HTML thread-timeline showing all threads as parallel horizontal lanes.
+
+    Each lane spans the full debate duration on the x-axis. Claims are coloured
+    rectangles positioned by their start_ms. The selected claim's lane is shown at
+    full opacity; all other lanes are dimmed to 25%. The selected claim itself gets
+    a gold highlight ring.
+
+    Returns an HTML string ready for st.markdown(..., unsafe_allow_html=True).
+    """
+    _SPK_COLORS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
+    LANE_H  = 28    # px height of each thread lane
+    GAP     = 5     # px vertical gap between lanes
+    LABEL_W = 175   # px width of the left label column
+    AXIS_H  = 22    # px for the time axis at the bottom
+    MIN_W   = 0.8   # minimum claim bar width in %
+
+    threaded = [c for c in claims if c.get("thread_id")]
+    if not threaded or not threads:
+        return ""
+
+    max_ms = max(c.get("end_ms", c.get("start_ms", 0) + 1000) for c in threaded)
+    if max_ms == 0:
+        return ""
+
+    speakers  = sorted({c["speaker"] for c in threaded})
+    spk_color = {spk: _SPK_COLORS[i % len(_SPK_COLORS)] for i, spk in enumerate(speakers)}
+
+    # Which thread does the selected claim live in?
+    focus_tid: str | None = None
+    if selected_claim_id:
+        for c in threaded:
+            if c["id"] == selected_claim_id:
+                focus_tid = c.get("thread_id")
+                break
+
+    by_thread: dict[str, list] = {}
+    for c in threaded:
+        by_thread.setdefault(c["thread_id"], []).append(c)
+
+    # Time-axis tick spacing
+    if max_ms > 1_800_000:
+        tick_ms = 120_000
+    elif max_ms > 600_000:
+        tick_ms = 60_000
+    elif max_ms > 180_000:
+        tick_ms = 30_000
+    else:
+        tick_ms = 10_000
+
+    html = '<div style="width:100%;overflow-x:auto;font-family:sans-serif;font-size:0.8em;padding:4px 0">'
+
+    for thread in threads:
+        tid     = thread["thread_id"]
+        topic   = thread.get("topic", tid)
+        label   = (topic[:26] + "…") if len(topic) > 26 else topic
+        t_claims = by_thread.get(tid, [])
+
+        # Dim rows that are not the focus thread
+        row_opacity = "1" if (focus_tid is None or focus_tid == tid) else "0.25"
+
+        html += (
+            f'<div style="display:flex;align-items:center;margin-bottom:{GAP}px;'
+            f'opacity:{row_opacity}">'
+        )
+
+        # Label
+        html += (
+            f'<div title="{topic}" style="min-width:{LABEL_W}px;max-width:{LABEL_W}px;'
+            f'padding-right:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+            f'color:#888;font-size:0.76em;line-height:{LANE_H}px">{label}</div>'
+        )
+
+        # Lane background
+        html += (
+            f'<div style="flex:1;position:relative;height:{LANE_H}px;'
+            f'background:rgba(128,128,128,0.1);border-radius:4px;overflow:visible">'
+        )
+
+        for c in t_claims:
+            start_pct = c.get("start_ms", 0) / max_ms * 100
+            raw_w     = (c.get("end_ms", 0) - c.get("start_ms", 0)) / max_ms * 100
+            width_pct = max(raw_w, MIN_W)
+            color     = spk_color.get(c["speaker"], "#aaaaaa")
+            is_sel    = c["id"] == selected_claim_id
+            is_restat = bool(c.get("restatement_of"))
+
+            spk_name = speaker_names.get(c["speaker"], c["speaker"])
+            ts       = f"{int(c.get('start_ms',0)//60000):02d}:{int((c.get('start_ms',0)%60000)//1000):02d}"
+            preview  = c["text"][:100] + ("…" if len(c["text"]) > 100 else "")
+            tooltip  = f"[{ts}] {spk_name}: {preview}"
+
+            border     = "3px solid #FFD700" if is_sel else "1px solid rgba(255,255,255,0.2)"
+            shadow     = ";box-shadow:0 0 0 2px #FFD700,0 0 10px rgba(255,215,0,0.6)" if is_sel else ""
+            z_idx      = "20" if is_sel else "1"
+            bar_opacity = "1" if is_sel else ("0.45" if is_restat else "0.85")
+            # Diagonal stripe pattern for restatements
+            bg_extra   = (
+                "background-image:repeating-linear-gradient("
+                "45deg,transparent,transparent 3px,"
+                "rgba(0,0,0,0.18) 3px,rgba(0,0,0,0.18) 6px);"
+            ) if is_restat else ""
+
+            html += (
+                f'<div title="{tooltip}" style="position:absolute;'
+                f'left:{start_pct:.3f}%;width:{width_pct:.3f}%;'
+                f'top:2px;height:{LANE_H-4}px;'
+                f'background:{color};{bg_extra}'
+                f'border-radius:3px;border:{border};z-index:{z_idx};'
+                f'opacity:{bar_opacity};box-sizing:border-box{shadow}"></div>'
+            )
+
+        html += '</div></div>'  # close lane + row
+
+    # Time axis
+    html += f'<div style="display:flex;margin-top:2px">'
+    html += f'<div style="min-width:{LABEL_W}px"></div>'
+    html += f'<div style="flex:1;position:relative;height:{AXIS_H}px">'
+
+    t = 0
+    while t <= max_ms:
+        pct = t / max_ms * 100
+        ts  = f"{int(t//60000):02d}:{int((t%60000)//1000):02d}"
+        html += (
+            f'<span style="position:absolute;left:{pct:.2f}%;transform:translateX(-50%);'
+            f'font-size:0.7em;color:#888;white-space:nowrap">{ts}</span>'
+        )
+        t += tick_ms
+
+    html += '</div></div>'  # close axis row
+    html += '</div>'        # close outer
+
+    return html
+
 
 def main() -> None:
     # Language toggle
@@ -991,9 +1147,9 @@ def main() -> None:
 
             # ── Sub-tabs ───────────────────────────────────────────────────────
             if analysis:
-                subtab_claims, subtab_fc, subtab_map, subtab_rhetoric, subtab_report = st.tabs(
-                    [L("subtab_claims"), L("subtab_factcheck"), L("subtab_map"),
-                     L("subtab_rhetoric"), L("subtab_report")]
+                subtab_claims, subtab_timeline, subtab_fc, subtab_map, subtab_rhetoric, subtab_report = st.tabs(
+                    [L("subtab_claims"), L("subtab_timeline"), L("subtab_factcheck"),
+                     L("subtab_map"), L("subtab_rhetoric"), L("subtab_report")]
                 )
 
                 # ── Claims sub-tab ─────────────────────────────────────────────
@@ -1609,6 +1765,99 @@ def main() -> None:
                                                 pass
                                             st.session_state[fb_key] = False
                                             st.success(L("feedback_thanks"))
+
+                # ── Thread Timeline sub-tab ───────────────────────────────────
+                with subtab_timeline:
+                    _tl_claims  = analysis.get("claims", [])
+                    _tl_threads = analysis.get("threads", [])
+
+                    if not _tl_threads:
+                        st.info(L("timeline_no_analysis"))
+                    else:
+                        # ── Claim selector ─────────────────────────────────────
+                        _tl_opts = {
+                            "": L("timeline_all"),
+                        }
+                        for _c in sorted(_tl_claims, key=lambda c: c.get("start_ms", 0)):
+                            if not _c.get("thread_id"):
+                                continue
+                            _spk  = speaker_names_an.get(_c["speaker"], _c["speaker"])
+                            _prev = (_c["text"][:65] + "…") if len(_c["text"]) > 65 else _c["text"]
+                            _tl_opts[_c["id"]] = f"[{ms_to_ts(_c.get('start_ms',0))}] {_spk} — {_prev}"
+
+                        _sel_cid = st.selectbox(
+                            L("timeline_select"),
+                            options=list(_tl_opts.keys()),
+                            format_func=lambda k: _tl_opts.get(k, k),
+                            key="timeline_claim_select",
+                        )
+
+                        st.caption(L("timeline_hint"))
+
+                        # ── Speaker legend ─────────────────────────────────────
+                        _tl_speakers = sorted({c["speaker"] for c in _tl_claims if c.get("thread_id")})
+                        _tl_spk_colors = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
+                        _tl_legend = " &nbsp; ".join(
+                            f'<span style="background:{_tl_spk_colors[i % len(_tl_spk_colors)]};'
+                            f'border-radius:50%;display:inline-block;width:11px;height:11px"></span> '
+                            f'{speaker_names_an.get(s, s)}'
+                            for i, s in enumerate(_tl_speakers)
+                        )
+                        st.markdown(
+                            f"<small>{L('timeline_legend')} {_tl_legend}</small>",
+                            unsafe_allow_html=True,
+                        )
+
+                        # ── Timeline visualization ─────────────────────────────
+                        _tl_html = _build_thread_timeline(
+                            _tl_claims,
+                            _tl_threads,
+                            speaker_names_an,
+                            selected_claim_id=_sel_cid or None,
+                        )
+                        if _tl_html:
+                            st.markdown(_tl_html, unsafe_allow_html=True)
+
+                        # ── Selected claim detail ──────────────────────────────
+                        if _sel_cid:
+                            _sel_c = next(
+                                (c for c in _tl_claims if c["id"] == _sel_cid), None
+                            )
+                            if _sel_c:
+                                st.divider()
+                                st.markdown(f"**{L('timeline_selected')}**")
+                                _sel_spk  = speaker_names_an.get(_sel_c["speaker"], _sel_c["speaker"])
+                                _sel_tid  = _sel_c.get("thread_id", "")
+                                _sel_topic = next(
+                                    (t.get("topic", _sel_tid) for t in _tl_threads
+                                     if t["thread_id"] == _sel_tid), _sel_tid
+                                )
+                                st.markdown(
+                                    f"> {_sel_c['text']}\n\n"
+                                    f"**{L('col_speaker')}:** {_sel_spk} &nbsp;·&nbsp; "
+                                    f"**{L('col_time')}:** {ms_to_ts(_sel_c.get('start_ms',0))} &nbsp;·&nbsp; "
+                                    f"**{L('timeline_thread')}:** {_sel_topic}"
+                                )
+                                # Show co-thread claims in turn order
+                                _co_claims = [
+                                    c for c in _tl_claims
+                                    if c.get("thread_id") == _sel_tid and c["id"] != _sel_cid
+                                ]
+                                if _co_claims:
+                                    _co_sorted = sorted(_co_claims, key=lambda c: c.get("start_ms", 0))
+                                    _rows = []
+                                    for _co in _co_sorted:
+                                        _co_spk = speaker_names_an.get(_co["speaker"], _co["speaker"])
+                                        _co_ts  = ms_to_ts(_co.get("start_ms", 0))
+                                        _rows.append(
+                                            f"[{_co_ts}] **{_co_spk}** — {_co['text'][:90]}"
+                                            + ("…" if len(_co["text"]) > 90 else "")
+                                        )
+                                    with st.expander(
+                                        f"Other claims in this thread ({len(_co_claims)})"
+                                    ):
+                                        for _row in _rows:
+                                            st.markdown(f"- {_row}")
 
                 # ── Fact-Check sub-tab ────────────────────────────────────────
                 with subtab_fc:
