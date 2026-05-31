@@ -4,7 +4,7 @@ A web app that takes a debate video (YouTube URL or uploaded file) and produces 
 speaker-attributed transcript with low-confidence zones highlighted, then
 fact-checks each speaker's claims against peer-reviewed scientific literature.
 
-**Status:** Phase 1 in progress — transcription pipeline.
+**Status:** Phase 1 and Phase 2 complete.
 
 ---
 
@@ -21,11 +21,16 @@ fact-checks each speaker's claims against peer-reviewed scientific literature.
 - Download transcript as JSON or PDF
 - Every transcript gets a shareable link (UUID in URL, stored in SQLite)
 
-**Phase 2 — Fact-Checking (planned)**
-- Extracts factual claims from each speaker's turns
-- Searches Semantic Scholar, PubMed, and CrossRef for supporting or contradicting evidence
-- Scores each source by study type, recency, citation count, and conflict of interest
-- Returns a verdict per claim: Supported / Contradicted / Contested / Insufficient evidence
+**Phase 2 — Debate Analysis (complete)**
+- Extracts and classifies every speaker's claims (factual, statistical, causal, moral, and more)
+- Detects how claims respond to each other: refutes, undercuts, reframes, supports, evades, and more
+- Builds an interactive argument map: claims as nodes, responses as directed edges
+- Retrieves evidence from Wikipedia and Semantic Scholar; returns a verdict per checkable claim
+- Detects logical fallacies and rhetorical devices per speaker turn
+- Scores each speaker: factual reliability and direct-response engagement rate
+- Generates a plain-language narrative summary of each speaker's debate performance
+
+See [docs/how-it-works.md](docs/how-it-works.md) for a full explanation of how the analysis works.
 
 ---
 
@@ -41,24 +46,38 @@ debate-fact-checker/
 │                       with speaker labels, timestamps, and confidence scores.
 ├── flagging.py         Classifies each utterance and word as ok / uncertain / unreliable
 │                       based on AssemblyAI confidence scores.
-├── storage.py          SQLite storage (transcripts.db). save_transcript(), load_transcript(),
-│                       list_recent(). Each transcript gets a UUID for shareable links.
-├── exporters.py        Builds PDF (fpdf2) and prepares JSON exports. substitute_names()
-│                       replaces speaker IDs with user-given names before export.
+├── storage.py          SQLite storage (transcripts.db). Handles transcripts, analyses,
+│                       claims, and verdict feedback. Each record gets a UUID.
+├── exporters.py        Builds PDF (fpdf2) and JSON exports for both phases.
 │
-├── test_pipeline.py    Manual end-to-end test: downloads a YouTube clip, transcribes it,
-│                       and saves the result to audio_tmp/test_output.json. Not part of the app.
+├── truth_checker/      Phase 2 — debate analysis pipeline
+│   ├── segmenter.py    Groups utterances into speaker turns
+│   ├── extractor.py    Extracts claims from each turn (Claude Haiku)
+│   ├── classifier.py   Classifies claim type, checkability, evidence quality
+│   ├── threader.py     Groups claims by topic into argument threads
+│   ├── responder.py    Detects cross-speaker responses and relationship types
+│   ├── dung.py         Computes grounded extension (argument acceptability)
+│   ├── evidence.py     Retrieves Wikipedia + Semantic Scholar sources
+│   ├── verifier.py     Generates fact-check verdicts (Claude Sonnet)
+│   ├── rhetorician.py  Detects fallacies and rhetorical devices
+│   ├── scorer.py       Computes per-speaker reliability and engagement scores
+│   ├── reporter.py     Generates plain-language speaker narrative summaries
+│   ├── visualizer.py   Builds pyvis/networkx argument graph
+│   ├── translator.py   Translates claims EN ↔ ES on demand
+│   └── deduplicator.py Removes near-duplicate claims
 │
-├── audio_tmp/          Temporary audio files (downloaded + processed). Not committed to git.
+├── docs/               User-facing documentation
+│   ├── how-it-works.md Full explanation of the debate-analysis system with examples
+│   ├── claim-types-reference.md  Quick-reference tables for all labels and types
+│   ├── limitations.md  What the system cannot do
+│   └── ux-recommendations.md  In-app UX improvements (developer-facing)
 │
+├── papers/             Academic papers underlying the analysis system
+├── test_pipeline.py    End-to-end Phase 1 test (not part of the app)
 ├── requirements.txt    Python dependencies
-├── .env.template       Template for environment variables — copy to .env and fill in keys
-├── .env                Your real API keys — never committed to git
-├── CLAUDE.md           Instructions for Claude when editing this project
-└── PLAN.md             Full build plan with architecture decisions and prompt sequence
+├── .env.template       Template for environment variables
+└── PLAN.md             Full build plan with architecture decisions
 ```
-
-> `fact_checker/` (extractor, searcher, scorer) will be added in Phase 2.
 
 ---
 
@@ -157,7 +176,7 @@ in the Streamlit dashboard (not in a `.env` file).
 - [x] P9 — PDF + JSON export (`exporters.py`)
 - [x] P10 — SQLite storage + shareable links (`storage.py`)
 - [ ] P11 — Deploy to Streamlit Community Cloud
-- [ ] P12–P15 — Phase 2: fact-checking pipeline
+- [x] P16–P35 — Phase 2: debate analysis pipeline (all complete)
 
 ---
 

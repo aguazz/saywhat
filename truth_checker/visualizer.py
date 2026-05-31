@@ -40,6 +40,17 @@ _SURV_BORDER = {
     "unattacked": (None,      1),  # default — no attacks received
 }
 
+_REL_DESCRIPTIONS = {
+    "refutes":   "directly denies the conclusion",
+    "undercuts": "challenges the evidence/reasoning (not the conclusion itself)",
+    "supports":  "agrees with or adds evidence for the claim",
+    "weakens":   "accepts but reduces the scope of the claim",
+    "concedes":  "acknowledges the other speaker has a point",
+    "reframes":  "accepts the facts but changes their interpretation",
+    "evades":    "changes subject without addressing the claim",
+    "ignores":   "makes an unrelated new point",
+}
+
 
 def build_graph_html(
     claims: list[dict],
@@ -48,6 +59,7 @@ def build_graph_html(
     survivability: dict[str, str] | None = None,
     show_premises: bool = True,
     show_reasoning_targets: bool = False,
+    verdicts: dict | None = None,
 ) -> str:
     """
     Build an interactive pyvis argument graph and return it as an HTML string.
@@ -87,7 +99,26 @@ def build_graph_html(
         bg    = speaker_color.get(spk, _SPEAKER_COLORS[0])
         shape = _SHAPE_MAP.get(claim.get("claim_type", ""), "dot")
         size  = 20 if claim.get("checkable") else 14
-        title = f"{name} · {text}"
+        claim_type   = claim.get("claim_type", "")
+        checkable    = "checkable" if claim.get("checkable") else "not checkable"
+        surv_status  = (survivability or {}).get(cid, "")
+        surv_labels  = {
+            "grounded":   "survived all counterarguments",
+            "contested":  "challenged",
+            "unattacked": "unchallenged",
+        }
+        surv_note    = surv_labels.get(surv_status, "")
+        vdict        = (verdicts or {}).get(cid, {})
+        verdict_str  = vdict.get("verdict", "")
+        verdict_conf = int(vdict.get("confidence", 0) * 100)
+        verdict_note = f"{verdict_str} ({verdict_conf}% confidence)" if verdict_str else ""
+
+        title_parts = [f"{name}", f"{text}", f"Type: {claim_type} · {checkable}"]
+        if surv_note:
+            title_parts.append(f"Status: {surv_note}")
+        if verdict_note:
+            title_parts.append(f"Verdict: {verdict_note}")
+        title = "\n".join(title_parts)
 
         # Encode survivability as border width + color when available
         surv_status = (survivability or {}).get(cid, "unattacked")
@@ -172,16 +203,18 @@ def build_graph_html(
                 to_id,
                 proxy_id,
                 color={"color": _pink, "highlight": _pink},
-                title=f"challenges reasoning: {explanation}",
+                title=f"undercuts: {explanation}\n\n({_REL_DESCRIPTIONS['undercuts']})",
                 arrows="to",
             )
         else:
             color = _EDGE_COLORS.get(rel, "#aaaaaa")
+            desc  = _REL_DESCRIPTIONS.get(rel, "")
+            title = f"{rel}: {explanation}" + (f"\n\n({desc})" if desc else "")
             net.add_edge(
                 from_id,
                 to_id,
                 color={"color": color, "highlight": color},
-                title=f"{rel}: {explanation}",
+                title=title,
                 arrows="to",
             )
 
