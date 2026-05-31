@@ -1347,6 +1347,7 @@ def main() -> None:
                                 analysis.get("claims", []),
                                 st.session_state["responses"],
                             )
+                            st.rerun()
                         except Exception as exc:
                             _prog_dr.empty()
                             st.error(str(exc))
