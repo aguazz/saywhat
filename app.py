@@ -964,6 +964,7 @@ def main() -> None:
                             text=LABELS["prog_factcheck"][lang].format(i=i + 1, n=len(checkable)),
                         )
                     st.session_state["verdicts"] = verdicts
+                    st.rerun()
 
             # ── Sub-tabs ───────────────────────────────────────────────────────
             if analysis:
