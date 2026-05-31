@@ -360,8 +360,18 @@ LABELS = {
                             "Español": "⬇ Mapa de respuestas (.json)"},
     "dl_rhetoric":         {"English": "⬇ Rhetoric analysis (.json)",
                             "Español": "⬇ Análisis retórico (.json)"},
-    "load_results_expander": {"English": "⬆ Load saved results (fact-check / responses / rhetoric)",
-                              "Español": "⬆ Cargar resultados guardados (verificación / respuestas / retórica)"},
+    "load_results_expander": {
+        "English": "⬆ Load saved results (fact-check / responses / rhetoric / speaker report)",
+        "Español": "⬆ Cargar resultados guardados (verificación / respuestas / retórica / informe)",
+    },
+    "upload_speaker_report_label": {"English": "Speaker report JSON",
+                                    "Español": "JSON de informe de hablantes"},
+    "load_speaker_report_btn":     {"English": "Load",    "Español": "Cargar"},
+    "speaker_report_loaded":       {"English": "Speaker report loaded.",
+                                    "Español": "Informe de hablantes cargado."},
+    "err_not_speaker_report_json": {"English": "File doesn't contain speaker report data.",
+                                    "Español": "El archivo no contiene datos del informe de hablantes."},
+    "claims_table_expander":       {"English": "Claims table", "Español": "Tabla de afirmaciones"},
     "upload_verdicts_label":  {"English": "Fact-check results JSON",
                                "Español": "JSON de resultados de verificación"},
     "upload_responses_label": {"English": "Response map JSON",
@@ -1251,6 +1261,67 @@ def main() -> None:
                     f"{'Haiku' if 'haiku' in _rhet_model else 'Sonnet'})"
                 )
 
+                # ── Load saved results ────────────────────────────────────────
+                with st.expander(L("load_results_expander")):
+                    _lv_col, _lr_col, _lrh_col, _lsr_col = st.columns(4)
+                    with _lv_col:
+                        _vf = st.file_uploader(L("upload_verdicts_label"), type=["json"], key="ul_verdicts")
+                        if _vf and st.button(L("load_verdicts_btn"), key="btn_ul_verdicts"):
+                            try:
+                                _d = json.loads(_vf.read())
+                                if not isinstance(_d.get("verdicts"), dict):
+                                    st.error(L("err_not_verdicts_json"))
+                                else:
+                                    st.session_state["verdicts"] = _d["verdicts"]
+                                    st.success(L("verdicts_loaded"))
+                                    st.rerun()
+                            except Exception:
+                                st.error(L("err_invalid_json"))
+                    with _lr_col:
+                        _rf = st.file_uploader(L("upload_responses_label"), type=["json"], key="ul_responses")
+                        if _rf and st.button(L("load_responses_btn"), key="btn_ul_responses"):
+                            try:
+                                _d = json.loads(_rf.read())
+                                if not isinstance(_d.get("responses"), list):
+                                    st.error(L("err_not_responses_json"))
+                                else:
+                                    st.session_state["responses"] = _d["responses"]
+                                    st.session_state["survivability"] = compute_grounded_extension(
+                                        analysis.get("claims", []), _d["responses"],
+                                    )
+                                    st.success(L("responses_loaded"))
+                                    st.rerun()
+                            except Exception:
+                                st.error(L("err_invalid_json"))
+                    with _lrh_col:
+                        _rhf = st.file_uploader(L("upload_rhetoric_label"), type=["json"], key="ul_rhetoric")
+                        if _rhf and st.button(L("load_rhetoric_btn"), key="btn_ul_rhetoric"):
+                            try:
+                                _d = json.loads(_rhf.read())
+                                if not isinstance(_d.get("rhetoric"), list):
+                                    st.error(L("err_not_rhetoric_json"))
+                                else:
+                                    st.session_state["rhetoric"] = _d["rhetoric"]
+                                    if isinstance(_d.get("stages"), list):
+                                        st.session_state["stages"] = _d["stages"]
+                                    st.success(L("rhetoric_loaded"))
+                                    st.rerun()
+                            except Exception:
+                                st.error(L("err_invalid_json"))
+                    with _lsr_col:
+                        _srf = st.file_uploader(L("upload_speaker_report_label"), type=["json"], key="ul_speaker_report")
+                        if _srf and st.button(L("load_speaker_report_btn"), key="btn_ul_speaker_report"):
+                            try:
+                                _d = json.loads(_srf.read())
+                                if not isinstance(_d.get("speaker_report"), dict):
+                                    st.error(L("err_not_speaker_report_json"))
+                                else:
+                                    st.session_state["speaker_report"] = _d["speaker_report"]
+                                    st.success(L("speaker_report_loaded"))
+                                    st.rerun()
+                            except Exception:
+                                st.error(L("err_invalid_json"))
+
                 # ── Detect Responses button ────────────────────────────────────
                 col_dr, col_dr_note, col_dr_dl = st.columns([1, 2, 2])
                 with col_dr:
@@ -1419,56 +1490,6 @@ def main() -> None:
 
                 # ── Claims sub-tab ─────────────────────────────────────────────
                 with subtab_claims:
-                    # ── Load saved results (verdicts / responses / rhetoric) ───
-                    with st.expander(L("load_results_expander")):
-                        _lv_col, _lr_col, _lrh_col = st.columns(3)
-
-                        with _lv_col:
-                            _vf = st.file_uploader(L("upload_verdicts_label"), type=["json"], key="ul_verdicts")
-                            if _vf and st.button(L("load_verdicts_btn"), key="btn_ul_verdicts"):
-                                try:
-                                    _d = json.loads(_vf.read())
-                                    if not isinstance(_d.get("verdicts"), dict):
-                                        st.error(L("err_not_verdicts_json"))
-                                    else:
-                                        st.session_state["verdicts"] = _d["verdicts"]
-                                        st.success(L("verdicts_loaded"))
-                                        st.rerun()
-                                except Exception:
-                                    st.error(L("err_invalid_json"))
-
-                        with _lr_col:
-                            _rf = st.file_uploader(L("upload_responses_label"), type=["json"], key="ul_responses")
-                            if _rf and st.button(L("load_responses_btn"), key="btn_ul_responses"):
-                                try:
-                                    _d = json.loads(_rf.read())
-                                    if not isinstance(_d.get("responses"), list):
-                                        st.error(L("err_not_responses_json"))
-                                    else:
-                                        st.session_state["responses"] = _d["responses"]
-                                        st.session_state["survivability"] = compute_grounded_extension(
-                                            analysis.get("claims", []),
-                                            _d["responses"],
-                                        )
-                                        st.success(L("responses_loaded"))
-                                        st.rerun()
-                                except Exception:
-                                    st.error(L("err_invalid_json"))
-
-                        with _lrh_col:
-                            _rhf = st.file_uploader(L("upload_rhetoric_label"), type=["json"], key="ul_rhetoric")
-                            if _rhf and st.button(L("load_rhetoric_btn"), key="btn_ul_rhetoric"):
-                                try:
-                                    _d = json.loads(_rhf.read())
-                                    if not isinstance(_d.get("rhetoric"), list):
-                                        st.error(L("err_not_rhetoric_json"))
-                                    else:
-                                        st.session_state["rhetoric"] = _d["rhetoric"]
-                                        st.success(L("rhetoric_loaded"))
-                                        st.rerun()
-                                except Exception:
-                                    st.error(L("err_invalid_json"))
-
                     claims   = analysis.get("claims", [])
                     threads  = analysis.get("threads", [])
                     verdicts = st.session_state.get("verdicts", {})
@@ -1554,6 +1575,13 @@ def main() -> None:
                             ),
                         }
 
+                        # ── Collapsible, scrollable table ─────────────────────
+                        st.markdown(
+                            f'<details open><summary style="cursor:pointer;font-weight:600;'
+                            f'padding:4px 0;user-select:none">'
+                            f'{L("claims_table_expander")} ({len(sorted_claims)})</summary>',
+                            unsafe_allow_html=True,
+                        )
                         # Table — HTML with badge column when verdicts present
                         if verdicts:
                             th = "padding:6px 8px;text-align:left;border-bottom:2px solid #dee2e6;font-size:0.88em"
@@ -1607,7 +1635,8 @@ def main() -> None:
                                     f"</tr>"
                                 )
                             st.markdown(
-                                f"<div style='overflow-x:auto'><table style='width:100%;border-collapse:collapse'>"
+                                f"<div style='max-height:420px;overflow-y:auto;overflow-x:auto'>"
+                                f"<table style='width:100%;border-collapse:collapse'>"
                                 f"<thead><tr>{hdr_html}</tr></thead><tbody>{rows_html}</tbody></table></div>",
                                 unsafe_allow_html=True,
                             )
@@ -1641,7 +1670,10 @@ def main() -> None:
                                 }
                                 for c in sorted_claims
                             ]
-                            st.dataframe(rows, use_container_width=True)
+                            st.dataframe(rows, use_container_width=True, height=420)
+
+                        # Close the <details> wrapper
+                        st.markdown("</details>", unsafe_allow_html=True)
 
                         # CSV export
                         if sorted_claims:
