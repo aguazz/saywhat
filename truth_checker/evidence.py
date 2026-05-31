@@ -5,7 +5,8 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 1  # seconds per request
+_WIKI_TIMEOUT = 8   # Wikipedia API is usually fast but Streamlit Cloud adds latency
+_SS_TIMEOUT   = 12  # Semantic Scholar can be slower under load
 
 
 # ---------------------------------------------------------------------------
@@ -28,7 +29,7 @@ def _wiki_search(query: str, lang: str) -> list[str]:
                 "srlimit":  3,
                 "format":   "json",
             },
-            timeout=_TIMEOUT,
+            timeout=_WIKI_TIMEOUT,
         )
         r.raise_for_status()
         return [item["title"] for item in r.json().get("query", {}).get("search", [])]
@@ -50,7 +51,7 @@ def _wiki_extract(title: str, lang: str) -> dict | None:
                 "titles":      title,
                 "format":      "json",
             },
-            timeout=_TIMEOUT,
+            timeout=_WIKI_TIMEOUT,
         )
         r.raise_for_status()
         pages = r.json().get("query", {}).get("pages", {})
@@ -103,7 +104,7 @@ def _fetch_semantic_scholar(query: str, max_results: int) -> list[dict]:
                 "fields": "title,year,citationCount,abstract,paperId",
                 "limit":  max_results + 5,   # fetch extra to survive filtering
             },
-            timeout=_TIMEOUT,
+            timeout=_SS_TIMEOUT,
         )
         r.raise_for_status()
         data = r.json().get("data", [])
