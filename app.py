@@ -750,14 +750,30 @@ def main() -> None:
                 if "utterances" not in data:
                     st.error(L("err_not_transcript_json"))
                 else:
-                    # Normalise speaker IDs: if utterances use multi-char IDs
-                    # (e.g. "Speaker A" from a substituted export), remap them
-                    # back to single uppercase letters so the rest of the app works.
-                    raw_speakers = sorted({u["speaker"] for u in data["utterances"]})
-                    if any(len(s) > 1 for s in raw_speakers):
-                        sid_map = {s: chr(ord("A") + i) for i, s in enumerate(raw_speakers)}
-                        for u in data["utterances"]:
-                            u["speaker"] = sid_map[u["speaker"]]
+                    _spk_names_meta  = data.get("_speaker_names",  {})
+                    _spk_merges_meta = data.get("_speaker_merges", {})
+
+                    if _spk_names_meta:
+                        # New format: utterances already have single-char IDs;
+                        # restore speaker names and merge mappings to session state.
+                        for _sid, _name in _spk_names_meta.items():
+                            if _name:
+                                st.session_state[f"speaker_name_{_sid}"] = _name
+                        # _speaker_merges is informational (merge already baked in),
+                        # but restore it so the merge UI reflects the original setup
+                        # if the merged-away speaker still appears in utterances.
+                        for _sid, _tgt in _spk_merges_meta.items():
+                            st.session_state[f"speaker_merge_{_sid}"] = _tgt
+                    else:
+                        # Old / third-party format: utterances may use full names
+                        # instead of single-char IDs — remap back to letters.
+                        raw_speakers = sorted({u["speaker"] for u in data["utterances"]})
+                        if any(len(s) > 1 for s in raw_speakers):
+                            sid_map = {s: chr(ord("A") + i)
+                                       for i, s in enumerate(raw_speakers)}
+                            for u in data["utterances"]:
+                                u["speaker"] = sid_map[u["speaker"]]
+
                     st.session_state["transcript"] = data
                     for key in ("analysis", "verdicts", "responses", "rhetoric",
                                 "speaker_report", "_saved_link", "_has_analysis_link",
@@ -946,16 +962,39 @@ def main() -> None:
                     st.caption(L("legend"))
 
             st.divider()
-            export_t = substitute_names({**t, "utterances": merged_utterances}, speaker_names)
-            slug     = "".join(c if c.isalnum() or c in "-_" else "_"
-                               for c in t.get("_title", "transcript")).strip()[:50]
-            dt_str   = datetime.now().strftime("%Y%m%d_%H%M%S")
+            slug   = "".join(c if c.isalnum() or c in "-_" else "_"
+                             for c in t.get("_title", "transcript")).strip()[:50]
+            dt_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # Active speakers after merging (merged-away IDs are gone from utterances)
+            _active_spks = {u["speaker"] for u in merged_utterances}
+
+            # JSON export: keep original single-char IDs; embed names + merges as
+            # metadata so re-importing restores the speaker setup automatically.
+            json_export = {
+                **t,
+                "utterances":       merged_utterances,
+                "_speaker_names":   {
+                    sid: name
+                    for sid, name in speaker_names.items()
+                    if sid in _active_spks and name
+                },
+                "_speaker_merges":  {
+                    sid: tgt
+                    for sid, tgt in merge_map.items()
+                    if tgt != sid
+                },
+            }
+            # PDF export: substitute names so the document is human-readable
+            export_t = substitute_names(
+                {**t, "utterances": merged_utterances}, speaker_names
+            )
 
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
                     label     = L("btn_dl_json"),
-                    data      = json.dumps(export_t, indent=2, ensure_ascii=False),
+                    data      = json.dumps(json_export, indent=2, ensure_ascii=False),
                     file_name = f"transcript_{slug}_{dt_str}.json",
                     mime      = "application/json",
                 )
