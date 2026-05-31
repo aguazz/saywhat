@@ -1736,12 +1736,15 @@ def main() -> None:
                                         if vdict.get("against_the_claim"):
                                             st.markdown(f"**{L('against')}** {vdict['against_the_claim']}")
 
+                                    ks = vdict.get("key_source", "")
+                                    if ks:
+                                        st.caption(f"**Key source:** {ks}")
                                     sources = vdict.get("all_sources") or []
                                     if sources:
                                         st.markdown(f"**{L('sources')}**")
                                         for src in sources:
                                             title_s = src.get("title", "Source") if isinstance(src, dict) else str(src)
-                                            url_s   = src.get("url", "")        if isinstance(src, dict) else ""
+                                            url_s   = (src.get("url", "") or "") if isinstance(src, dict) else ""
                                             st.markdown(f"- [{title_s}]({url_s})" if url_s else f"- {title_s}")
 
                                     fb_key = f"feedback_open_{cid}"
@@ -1988,16 +1991,18 @@ def main() -> None:
                                         st.markdown(f"**{L('in_favour')}** {_vd['for_the_claim']}")
                                     if _vd.get("against_the_claim"):
                                         st.markdown(f"**{L('against')}** {_vd['against_the_claim']}")
-                                # Sources
+                                # Key source — always shown when present
+                                _ks = _vd.get("key_source", "")
+                                if _ks:
+                                    st.caption(f"**Key source:** {_ks}")
+                                # Retrieved sources
                                 _srcs = _vd.get("all_sources") or []
                                 if _srcs:
                                     st.markdown(f"**{L('sources')}**")
                                     for _s in _srcs:
                                         _st = _s.get("title", "Source") if isinstance(_s, dict) else str(_s)
-                                        _su = _s.get("url", "") if isinstance(_s, dict) else ""
+                                        _su = (_s.get("url", "") or "") if isinstance(_s, dict) else ""
                                         st.markdown(f"- [{_st}]({_su})" if _su else f"- {_st}")
-                                elif _kb:
-                                    st.caption("No specific URL — based on scientific consensus in training data.")
 
                 # ── Argument Map sub-tab ───────────────────────────────────────
                 with subtab_map:
