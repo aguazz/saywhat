@@ -1246,7 +1246,7 @@ def main() -> None:
             if not anthropic_key:
                 st.warning(L("no_anthropic_an"))
 
-            if not analysis:
+            if not st.session_state.get("analysis"):
                 st.info(
                     f"**{L('analysis_empty_heading')}**\n\n{L('analysis_empty_body')}"
                 )
