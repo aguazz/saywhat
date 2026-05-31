@@ -38,6 +38,12 @@ from truth_checker.stage_labeler import label_dialectical_stages
 
 load_dotenv()  # loads .env for local dev; no-op on Streamlit Community Cloud
 
+st.set_page_config(
+    page_title="SayWhat",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
 # ---------------------------------------------------------------------------
 # Bilingual labels
 # ---------------------------------------------------------------------------
@@ -288,6 +294,7 @@ LABELS = {
                            "Español": "Ejecuta primero el análisis retórico."},
     "rhetoric_fallacies": {"English": "Logical fallacies",           "Español": "Falacias lógicas"},
     "rhetoric_devices":   {"English": "Rhetorical devices",          "Español": "Recursos retóricos"},
+    "rhetoric_profile_chart": {"English": "Rhetorical profile by speaker", "Español": "Perfil retórico por hablante"},
     "rhetoric_footer":    {
         "English": "Rhetorical devices are not always flaws. Labels show technique, not quality.",
         "Español": "Los recursos retóricos no son siempre defectos. Las etiquetas indican técnica, no calidad.",
@@ -2254,6 +2261,85 @@ def main() -> None:
                             spk_rhetoric: dict[str, list[dict]] = defaultdict(list)
                             for item in rhetoric:
                                 spk_rhetoric[item["speaker"]].append(item)
+
+                            # ── Rhetorical profile overview chart ──────────────
+                            st.subheader(L("rhetoric_profile_chart"))
+                            _profile_rows = {}
+                            for _psid, _pturns in spk_rhetoric.items():
+                                _pname = speaker_names_an.get(_psid, _psid)
+                                _f_cnt = sum(len(t.get("fallacies", [])) for t in _pturns)
+                                _d_cnt = sum(
+                                    len([d for d in t.get("rhetorical_devices", [])
+                                         if not d.get("is_fallacy", False)])
+                                    for t in _pturns
+                                )
+                                # Collect top-3 fallacy types for the tooltip label
+                                _ftypes: dict[str, int] = {}
+                                for _pt in _pturns:
+                                    for _pf in _pt.get("fallacies", []):
+                                        _ft = _pf.get("label") or _pf.get("type", "")
+                                        if _ft:
+                                            _ftypes[_ft] = _ftypes.get(_ft, 0) + 1
+                                _top_ft = sorted(_ftypes, key=lambda x: -_ftypes[x])[:3]
+                                _profile_rows[_pname] = {
+                                    "f_cnt": _f_cnt,
+                                    "d_cnt": _d_cnt,
+                                    "top_ft": _top_ft,
+                                }
+
+                            if _profile_rows:
+                                _lbl_f = L("rhetoric_fallacies")
+                                _lbl_d = L("rhetoric_devices")
+                                _max_rh = max(
+                                    max(r["f_cnt"], r["d_cnt"])
+                                    for r in _profile_rows.values()
+                                ) or 1
+                                _rh_chart_html = (
+                                    '<div style="display:flex;flex-direction:column;gap:14px;'
+                                    'margin:12px 0 20px 0">'
+                                )
+                                for _pname, _prow in _profile_rows.items():
+                                    _fc = _prow["f_cnt"]
+                                    _dc = _prow["d_cnt"]
+                                    _ft_note = (
+                                        " · " + ", ".join(_prow["top_ft"])
+                                        if _prow["top_ft"] else ""
+                                    )
+                                    _fw = _fc / _max_rh * 100
+                                    _dw = _dc / _max_rh * 100
+                                    _rh_chart_html += (
+                                        f'<div>'
+                                        f'<div style="font-weight:600;font-size:0.9em;'
+                                        f'margin-bottom:4px">{_pname}</div>'
+                                        # Fallacies bar
+                                        f'<div style="display:flex;align-items:center;gap:8px;'
+                                        f'margin-bottom:3px;font-size:0.82em">'
+                                        f'<div style="min-width:140px;text-align:right;color:#888">'
+                                        f'{_lbl_f}{_ft_note}</div>'
+                                        f'<div style="flex:1;background:rgba(128,128,128,0.12);'
+                                        f'border-radius:3px;height:20px">'
+                                        f'<div style="width:{_fw:.1f}%;background:#d62728;'
+                                        f'border-radius:3px;height:100%;min-width:{4 if _fc else 0}px">'
+                                        f'</div></div>'
+                                        f'<div style="min-width:28px;color:#aaa">{_fc}</div>'
+                                        f'</div>'
+                                        # Devices bar
+                                        f'<div style="display:flex;align-items:center;gap:8px;'
+                                        f'font-size:0.82em">'
+                                        f'<div style="min-width:140px;text-align:right;color:#888">'
+                                        f'{_lbl_d}</div>'
+                                        f'<div style="flex:1;background:rgba(128,128,128,0.12);'
+                                        f'border-radius:3px;height:20px">'
+                                        f'<div style="width:{_dw:.1f}%;background:#1f77b4;'
+                                        f'border-radius:3px;height:100%;min-width:{4 if _dc else 0}px">'
+                                        f'</div></div>'
+                                        f'<div style="min-width:28px;color:#aaa">{_dc}</div>'
+                                        f'</div>'
+                                        f'</div>'
+                                    )
+                                _rh_chart_html += "</div>"
+                                st.markdown(_rh_chart_html, unsafe_allow_html=True)
+                                st.divider()
 
                             for sid in sorted(spk_rhetoric.keys()):
                                 turns_for_spk = spk_rhetoric[sid]
