@@ -1250,6 +1250,9 @@ def main() -> None:
                 st.info(
                     f"**{L('analysis_empty_heading')}**\n\n{L('analysis_empty_body')}"
                 )
+            else:
+                with st.expander(L("analysis_empty_heading"), expanded=False):
+                    st.markdown(L("analysis_empty_body"))
 
             col_btn, col_note = st.columns([1, 3])
             with col_btn:
@@ -1761,12 +1764,6 @@ def main() -> None:
                         }
 
                         # ── Collapsible, scrollable table ─────────────────────
-                        st.markdown(
-                            f'<details open><summary style="cursor:pointer;font-weight:600;'
-                            f'padding:4px 0;user-select:none">'
-                            f'{L("claims_table_expander")} ({len(sorted_claims)})</summary>',
-                            unsafe_allow_html=True,
-                        )
                         # Table — HTML with badge column when verdicts present
                         if verdicts:
                             _legend_html = " &nbsp;|&nbsp; ".join(
@@ -1779,10 +1776,9 @@ def main() -> None:
                                     ("#e2e3e5", L("verdict_unverifiable")),
                                 ]
                             )
-                            st.markdown(
+                            _legend_div = (
                                 f'<div style="margin-bottom:8px"><small><strong>{L("verdict_legend_label")}</strong> '
-                                f'{_legend_html}</small></div>',
-                                unsafe_allow_html=True,
+                                f'{_legend_html}</small></div>'
                             )
                             th = "padding:6px 8px;text-align:left;border-bottom:2px solid #dee2e6;font-size:0.88em"
                             td = "padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:0.85em;vertical-align:top"
@@ -1847,46 +1843,49 @@ def main() -> None:
                                     f"</tr>"
                                 )
                             st.markdown(
+                                f'<details open>'
+                                f'<summary style="cursor:pointer;font-weight:600;padding:4px 0;user-select:none">'
+                                f'{L("claims_table_expander")} ({len(sorted_claims)})</summary>'
+                                f'{_legend_div}'
                                 f"<div style='max-height:420px;overflow-y:auto;overflow-x:auto'>"
                                 f"<table style='width:100%;border-collapse:collapse'>"
-                                f"<thead><tr>{hdr_html}</tr></thead><tbody>{rows_html}</tbody></table></div>",
+                                f"<thead><tr>{hdr_html}</tr></thead><tbody>{rows_html}</tbody></table></div>"
+                                f'</details>',
                                 unsafe_allow_html=True,
                             )
                         else:
-                            def _claim_cell_plain(c: dict) -> str:
-                                short = (c["text"][:120] + "…") if len(c["text"]) > 120 else c["text"]
-                                restat_id = c.get("restatement_of")
-                                if restat_id:
-                                    orig_text = _claim_by_id.get(restat_id, {}).get("text", "")
-                                    orig_preview = (orig_text[:60] + "…") if len(orig_text) > 60 else orig_text
-                                    note = f" [{L('restatement_badge')}: {orig_preview}]" if orig_preview else f" [{L('restatement_badge')}]"
-                                    return short + note
-                                suffixes = []
-                                _ql = _QUAL_LABELS.get(c.get("qualifier", ""), "")
-                                if _ql:
-                                    suffixes.append(f"({_ql})")
-                                if _motion_for_tags and c.get("stance") in ("pro", "con"):
-                                    suffixes.append(
-                                        f"[{L('stance_pro') if c['stance'] == 'pro' else L('stance_con')}]"
-                                    )
-                                return short + (" " + " ".join(suffixes) if suffixes else "")
+                            with st.expander(f"{L('claims_table_expander')} ({len(sorted_claims)})", expanded=True):
+                                def _claim_cell_plain(c: dict) -> str:
+                                    short = (c["text"][:120] + "…") if len(c["text"]) > 120 else c["text"]
+                                    restat_id = c.get("restatement_of")
+                                    if restat_id:
+                                        orig_text = _claim_by_id.get(restat_id, {}).get("text", "")
+                                        orig_preview = (orig_text[:60] + "…") if len(orig_text) > 60 else orig_text
+                                        note = f" [{L('restatement_badge')}: {orig_preview}]" if orig_preview else f" [{L('restatement_badge')}]"
+                                        return short + note
+                                    suffixes = []
+                                    _ql = _QUAL_LABELS.get(c.get("qualifier", ""), "")
+                                    if _ql:
+                                        suffixes.append(f"({_ql})")
+                                    if _motion_for_tags and c.get("stance") in ("pro", "con"):
+                                        suffixes.append(
+                                            f"[{L('stance_pro') if c['stance'] == 'pro' else L('stance_con')}]"
+                                        )
+                                    return short + (" " + " ".join(suffixes) if suffixes else "")
 
-                            rows = [
-                                {
-                                    L("col_thread"):    c.get("thread_id", ""),
-                                    L("col_speaker"):   speaker_names_an.get(c["speaker"], c["speaker"]),
-                                    L("col_time"):      ms_to_ts(c.get("start_ms", 0)),
-                                    L("col_type"):      c.get("claim_type", ""),
-                                    L("col_checkable"): "yes" if c.get("checkable") else "no",
-                                    L("col_claim"):     _claim_cell_plain(c),
-                                }
-                                for c in sorted_claims
-                            ]
-                            st.dataframe(rows, use_container_width=True, height=420)
-                            st.caption(L("col_headers_note"))
-
-                        # Close the <details> wrapper
-                        st.markdown("</details>", unsafe_allow_html=True)
+                                rows = [
+                                    {
+                                        L("col_thread"):    c.get("thread_id", ""),
+                                        L("col_speaker"):   speaker_names_an.get(c["speaker"], c["speaker"]),
+                                        L("col_time"):      ms_to_ts(c.get("start_ms", 0)),
+                                        L("col_type"):      c.get("claim_type", ""),
+                                        L("col_checkable"): "yes" if c.get("checkable") else "no",
+                                        L("col_claim"):     _claim_cell_plain(c),
+                                    }
+                                    for c in sorted_claims
+                                ]
+                                st.dataframe(rows, use_container_width=True, height=420)
+                                st.caption(L("col_headers_note"))
 
                         # CSV export
                         if sorted_claims:
