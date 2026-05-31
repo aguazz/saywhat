@@ -1187,6 +1187,231 @@ def main() -> None:
 
             # ── Sub-tabs ───────────────────────────────────────────────────────
             if analysis:
+                # ── Pipeline settings (model / batch selection) ────────────────
+                with st.expander(L("settings_expander")):
+                    _s1, _s2, _s3 = st.columns([2, 2, 1])
+                    with _s1:
+                        _resp_model_choice = st.radio(
+                            L("resp_model_label"),
+                            [L("model_haiku"), L("model_sonnet")],
+                            index=0,
+                            key="resp_model_radio",
+                        )
+                    with _s2:
+                        _rhet_model_choice = st.radio(
+                            L("rhet_model_label"),
+                            [L("model_haiku"), L("model_sonnet")],
+                            index=0,
+                            key="rhet_model_radio",
+                        )
+                    with _s3:
+                        _resp_batch = st.select_slider(
+                            L("resp_batch_label"),
+                            options=[1, 3, 5, 10],
+                            value=1,
+                            key="resp_batch_slider",
+                        )
+                    st.caption(L("settings_tip"))
+
+                # Resolve model IDs from widget return values
+                _resp_model      = "claude-haiku-4-5-20251001" if _resp_model_choice == L("model_haiku") else "claude-sonnet-4-6"
+                _rhet_model      = "claude-haiku-4-5-20251001" if _rhet_model_choice == L("model_haiku") else "claude-sonnet-4-6"
+                _resp_batch_size = _resp_batch
+
+                # ── Dynamic cost estimates ─────────────────────────────────────
+                _RESP_CALL_COST = {
+                    "claude-haiku-4-5-20251001": (0.0008, 0.002),
+                    "claude-sonnet-4-6":         (0.006,  0.018),
+                }
+                _RHET_CALL_COST = {
+                    "claude-haiku-4-5-20251001": (0.001,  0.004),
+                    "claude-sonnet-4-6":         (0.010,  0.035),
+                }
+                _n_claims  = len(analysis.get("claims", []))
+                _n_turns   = len({c.get("turn_index") for c in analysis.get("claims", [])})
+                _n_dr_calls = max(1, (_n_claims + _resp_batch_size - 1) // _resp_batch_size)
+                _dr_lo, _dr_hi = _RESP_CALL_COST[_resp_model]
+                _dr_lo_tot, _dr_hi_tot = _dr_lo * _n_dr_calls, _dr_hi * _n_dr_calls
+                _rh_lo, _rh_hi = _RHET_CALL_COST[_rhet_model]
+                _rh_lo_tot, _rh_hi_tot = _rh_lo * _n_turns, _rh_hi * _n_turns
+
+                def _fmt(lo: float, hi: float) -> str:
+                    if hi < 0.01:
+                        return f"~${lo:.3f}–${hi:.3f}"
+                    return f"~${lo:.2f}–${hi:.2f}"
+
+                _dr_note = (
+                    f"{_fmt(_dr_lo_tot, _dr_hi_tot)} "
+                    f"({_n_claims} claims · {_n_dr_calls} API call{'s' if _n_dr_calls != 1 else ''} · "
+                    f"{'Haiku' if 'haiku' in _resp_model else 'Sonnet'}, batch {_resp_batch_size})"
+                )
+                _rh_note = (
+                    f"{_fmt(_rh_lo_tot, _rh_hi_tot)} "
+                    f"({_n_turns} turns · "
+                    f"{'Haiku' if 'haiku' in _rhet_model else 'Sonnet'})"
+                )
+
+                # ── Detect Responses button ────────────────────────────────────
+                col_dr, col_dr_note, col_dr_dl = st.columns([1, 2, 2])
+                with col_dr:
+                    dr_clicked = st.button(L("detect_responses"), disabled=not anthropic_key)
+                with col_dr_note:
+                    st.caption(_dr_note)
+                with col_dr_dl:
+                    if st.session_state.get("responses"):
+                        st.download_button(
+                            label     = L("dl_responses"),
+                            data      = json.dumps(
+                                {"responses": st.session_state["responses"]},
+                                indent=2, ensure_ascii=False,
+                            ).encode(),
+                            file_name = f"responses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime      = "application/json",
+                            key       = "dl_responses_btn",
+                        )
+
+                if dr_clicked and anthropic_key:
+                    _dr_claims = sorted(
+                        analysis.get("claims", []),
+                        key=lambda c: c.get("start_ms", 0),
+                    )
+                    _dr_total = max(len(_dr_claims) - 1, 1)
+                    _prog_dr  = st.progress(
+                        0,
+                        text=LABELS["prog_detect"][lang].format(i=0, n=_dr_total),
+                    )
+                    def _dr_progress(i: int, n: int) -> None:
+                        _prog_dr.progress(
+                            int(i / max(n, 1) * 100),
+                            text=LABELS["prog_detect"][lang].format(i=i, n=n),
+                        )
+                    try:
+                        st.session_state["responses"] = detect_responses(
+                            _dr_claims, anthropic_key,
+                            on_progress=_dr_progress,
+                            model=_resp_model,
+                            batch_size=_resp_batch_size,
+                        )
+                        st.session_state["survivability"] = compute_grounded_extension(
+                            analysis.get("claims", []),
+                            st.session_state["responses"],
+                        )
+                        st.rerun()
+                    except Exception as exc:
+                        _prog_dr.empty()
+                        st.error(str(exc))
+
+                # ── Analyze Rhetoric button ────────────────────────────────────
+                col_rh, col_rh_note, col_rh_dl = st.columns([1, 2, 2])
+                with col_rh:
+                    rh_clicked = st.button(L("run_rhetoric"), disabled=not anthropic_key)
+                with col_rh_note:
+                    st.caption(_rh_note)
+                with col_rh_dl:
+                    if st.session_state.get("rhetoric"):
+                        st.download_button(
+                            label     = L("dl_rhetoric"),
+                            data      = json.dumps(
+                                {
+                                    "rhetoric": st.session_state["rhetoric"],
+                                    "stages":   st.session_state.get("stages", []),
+                                },
+                                indent=2, ensure_ascii=False,
+                            ).encode(),
+                            file_name = f"rhetoric_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime      = "application/json",
+                            key       = "dl_rhetoric_btn",
+                        )
+
+                if rh_clicked and anthropic_key:
+                    turns_rh = segment_turns(utterances_an)
+                    rh_results: list[dict] = []
+                    prog_rh = st.progress(
+                        0,
+                        text=LABELS["rhetoric_progress"][lang].format(i=0, n=len(turns_rh)),
+                    )
+                    for i, turn in enumerate(turns_rh):
+                        try:
+                            rh_results.append(analyze_turn_rhetoric(turn, anthropic_key, model=_rhet_model))
+                        except Exception as exc:
+                            rh_results.append({
+                                "fallacies": [], "rhetorical_devices": [],
+                                "turn_index": turn["turn_index"],
+                                "speaker": turn["speaker"],
+                                "start_ms": turn["start_ms"],
+                            })
+                        pct = int((i + 1) / max(len(turns_rh), 1) * 100)
+                        prog_rh.progress(
+                            pct,
+                            text=LABELS["rhetoric_progress"][lang].format(i=i + 1, n=len(turns_rh)),
+                        )
+                    st.session_state["rhetoric"] = rh_results
+                    prog_rh.progress(100, text=L("stage_labeling"))
+                    label_dialectical_stages(turns_rh, anthropic_key)
+                    st.session_state["stages"] = [
+                        {
+                            "turn_index":        t["turn_index"],
+                            "speaker":           t["speaker"],
+                            "start_ms":          t["start_ms"],
+                            "dialectical_stage": t.get("dialectical_stage", "argumentation"),
+                        }
+                        for t in turns_rh
+                    ]
+                    st.rerun()
+
+                # ── Speaker Report button ──────────────────────────────────────
+                has_any_data = any([
+                    st.session_state.get("verdicts"),
+                    st.session_state.get("responses"),
+                    st.session_state.get("rhetoric"),
+                ])
+                col_sr, col_sr_note, col_sr_dl = st.columns([1, 2, 2])
+                with col_sr:
+                    sr_clicked = st.button(L("run_report"), disabled=not (anthropic_key and has_any_data))
+                with col_sr_note:
+                    if not has_any_data:
+                        st.caption(L("report_need_data"))
+                    else:
+                        st.caption(L("report_cost"))
+                with col_sr_dl:
+                    if st.session_state.get("speaker_report"):
+                        st.download_button(
+                            label     = L("dl_speaker_report"),
+                            data      = json.dumps(
+                                {"speaker_report": st.session_state["speaker_report"]},
+                                indent=2, ensure_ascii=False,
+                            ).encode(),
+                            file_name = f"speaker_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime      = "application/json",
+                            key       = "dl_speaker_report_btn",
+                        )
+
+                if sr_clicked and anthropic_key and has_any_data:
+                    verdicts_ss  = st.session_state.get("verdicts", {})
+                    responses_ss = st.session_state.get("responses") or []
+                    rhetoric_ss  = st.session_state.get("rhetoric") or []
+                    claims_mv    = [
+                        {**c, "verdict": verdicts_ss.get(c["id"], {}).get("verdict", "")}
+                        for c in analysis.get("claims", [])
+                    ]
+                    scores = compute_speaker_scores(claims_mv, responses_ss, rhetoric_ss)
+                    report: dict = {}
+                    sr_prog = st.progress(0)
+                    spk_ids = sorted(scores.keys())
+                    for i, sid in enumerate(spk_ids):
+                        name = speaker_names_an.get(sid, sid)
+                        sr_prog.progress(
+                            int(i / max(len(spk_ids), 1) * 100),
+                            text=LABELS["report_generating"][lang].format(name=name),
+                        )
+                        summary = generate_speaker_summary(sid, name, scores[sid], anthropic_key)
+                        report[sid] = {"score": scores[sid], "summary": summary}
+                    sr_prog.progress(100, text=L("prog_done"))
+                    st.session_state["speaker_report"] = report
+                    st.rerun()
+
+                st.divider()
+
                 subtab_claims, subtab_timeline, subtab_fc, subtab_map, subtab_rhetoric, subtab_report = st.tabs(
                     [L("subtab_claims"), L("subtab_timeline"), L("subtab_factcheck"),
                      L("subtab_map"), L("subtab_rhetoric"), L("subtab_report")]
@@ -1194,37 +1419,6 @@ def main() -> None:
 
                 # ── Claims sub-tab ─────────────────────────────────────────────
                 with subtab_claims:
-                    # ── Pipeline settings ──────────────────────────────────────
-                    with st.expander(L("settings_expander")):
-                        _s1, _s2, _s3 = st.columns([2, 2, 1])
-                        with _s1:
-                            _resp_model_choice = st.radio(
-                                L("resp_model_label"),
-                                [L("model_haiku"), L("model_sonnet")],
-                                index=0,
-                                key="resp_model_radio",
-                            )
-                        with _s2:
-                            _rhet_model_choice = st.radio(
-                                L("rhet_model_label"),
-                                [L("model_haiku"), L("model_sonnet")],
-                                index=0,
-                                key="rhet_model_radio",
-                            )
-                        with _s3:
-                            _resp_batch = st.select_slider(
-                                L("resp_batch_label"),
-                                options=[1, 3, 5, 10],
-                                value=1,
-                                key="resp_batch_slider",
-                            )
-                        st.caption(L("settings_tip"))
-
-                    # Resolve model IDs from widget return values
-                    _resp_model      = "claude-haiku-4-5-20251001" if _resp_model_choice == L("model_haiku") else "claude-sonnet-4-6"
-                    _rhet_model      = "claude-haiku-4-5-20251001" if _rhet_model_choice == L("model_haiku") else "claude-sonnet-4-6"
-                    _resp_batch_size = _resp_batch
-
                     # ── Load saved results (verdicts / responses / rhetoric) ───
                     with st.expander(L("load_results_expander")):
                         _lv_col, _lr_col, _lrh_col = st.columns(3)
@@ -1274,204 +1468,6 @@ def main() -> None:
                                         st.rerun()
                                 except Exception:
                                     st.error(L("err_invalid_json"))
-
-                    # ── Dynamic cost estimates ─────────────────────────────────
-                    # Rough per-API-call cost ranges (USD) for each model.
-                    # Detect Responses: ~400 tokens in + ~150 out per call.
-                    # Rhetoric: ~800 tokens in + ~300 out per call (longer turns).
-                    _RESP_CALL_COST = {
-                        "claude-haiku-4-5-20251001": (0.0008, 0.002),
-                        "claude-sonnet-4-6":         (0.006,  0.018),
-                    }
-                    _RHET_CALL_COST = {
-                        "claude-haiku-4-5-20251001": (0.001,  0.004),
-                        "claude-sonnet-4-6":         (0.010,  0.035),
-                    }
-
-                    _n_claims  = len(analysis.get("claims", []))
-                    _n_turns   = len({c.get("turn_index") for c in analysis.get("claims", [])})
-
-                    # Number of API calls = ceiling(_n_claims / batch_size)
-                    _n_dr_calls = max(1, (_n_claims + _resp_batch_size - 1) // _resp_batch_size)
-                    _dr_lo, _dr_hi = _RESP_CALL_COST[_resp_model]
-                    _dr_lo_tot, _dr_hi_tot = _dr_lo * _n_dr_calls, _dr_hi * _n_dr_calls
-
-                    _rh_lo, _rh_hi = _RHET_CALL_COST[_rhet_model]
-                    _rh_lo_tot, _rh_hi_tot = _rh_lo * _n_turns, _rh_hi * _n_turns
-
-                    def _fmt(lo: float, hi: float) -> str:
-                        if hi < 0.01:
-                            return f"~${lo:.3f}–${hi:.3f}"
-                        return f"~${lo:.2f}–${hi:.2f}"
-
-                    _dr_note = (
-                        f"{_fmt(_dr_lo_tot, _dr_hi_tot)} "
-                        f"({_n_claims} claims · {_n_dr_calls} API call{'s' if _n_dr_calls != 1 else ''} · "
-                        f"{'Haiku' if 'haiku' in _resp_model else 'Sonnet'}, batch {_resp_batch_size})"
-                    )
-                    _rh_note = (
-                        f"{_fmt(_rh_lo_tot, _rh_hi_tot)} "
-                        f"({_n_turns} turns · "
-                        f"{'Haiku' if 'haiku' in _rhet_model else 'Sonnet'})"
-                    )
-
-                    # ── Detect Responses button
-                    col_dr, col_dr_note, col_dr_dl = st.columns([1, 2, 2])
-                    with col_dr:
-                        dr_clicked = st.button(L("detect_responses"), disabled=not anthropic_key)
-                    with col_dr_note:
-                        st.caption(_dr_note)
-                    with col_dr_dl:
-                        if st.session_state.get("responses"):
-                            st.download_button(
-                                label     = L("dl_responses"),
-                                data      = json.dumps(
-                                    {"responses": st.session_state["responses"]},
-                                    indent=2, ensure_ascii=False,
-                                ).encode(),
-                                file_name = f"responses_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                mime      = "application/json",
-                                key       = "dl_responses_btn",
-                            )
-
-                    if dr_clicked and anthropic_key:
-                        _dr_claims = sorted(
-                            analysis.get("claims", []),
-                            key=lambda c: c.get("start_ms", 0),
-                        )
-                        _dr_total = max(len(_dr_claims) - 1, 1)
-                        _prog_dr  = st.progress(
-                            0,
-                            text=LABELS["prog_detect"][lang].format(i=0, n=_dr_total),
-                        )
-                        def _dr_progress(i: int, n: int) -> None:
-                            _prog_dr.progress(
-                                int(i / max(n, 1) * 100),
-                                text=LABELS["prog_detect"][lang].format(i=i, n=n),
-                            )
-                        try:
-                            st.session_state["responses"] = detect_responses(
-                                _dr_claims, anthropic_key,
-                                on_progress=_dr_progress,
-                                model=_resp_model,
-                                batch_size=_resp_batch_size,
-                            )
-                            st.session_state["survivability"] = compute_grounded_extension(
-                                analysis.get("claims", []),
-                                st.session_state["responses"],
-                            )
-                            st.rerun()
-                        except Exception as exc:
-                            _prog_dr.empty()
-                            st.error(str(exc))
-
-                    # Analyze Rhetoric button
-                    col_rh, col_rh_note, col_rh_dl = st.columns([1, 2, 2])
-                    with col_rh:
-                        rh_clicked = st.button(L("run_rhetoric"), disabled=not anthropic_key)
-                    with col_rh_note:
-                        st.caption(_rh_note)
-                    with col_rh_dl:
-                        if st.session_state.get("rhetoric"):
-                            st.download_button(
-                                label     = L("dl_rhetoric"),
-                                data      = json.dumps(
-                                    {
-                                        "rhetoric": st.session_state["rhetoric"],
-                                        "stages":   st.session_state.get("stages", []),
-                                    },
-                                    indent=2, ensure_ascii=False,
-                                ).encode(),
-                                file_name = f"rhetoric_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                mime      = "application/json",
-                                key       = "dl_rhetoric_btn",
-                            )
-
-                    if rh_clicked and anthropic_key:
-                        turns_rh = segment_turns(utterances_an)
-                        rh_results: list[dict] = []
-                        prog_rh = st.progress(
-                            0,
-                            text=LABELS["rhetoric_progress"][lang].format(i=0, n=len(turns_rh)),
-                        )
-                        for i, turn in enumerate(turns_rh):
-                            try:
-                                rh_results.append(analyze_turn_rhetoric(turn, anthropic_key, model=_rhet_model))
-                            except Exception as exc:
-                                rh_results.append({
-                                    "fallacies": [], "rhetorical_devices": [],
-                                    "turn_index": turn["turn_index"],
-                                    "speaker": turn["speaker"],
-                                    "start_ms": turn["start_ms"],
-                                })
-                            pct = int((i + 1) / max(len(turns_rh), 1) * 100)
-                            prog_rh.progress(
-                                pct,
-                                text=LABELS["rhetoric_progress"][lang].format(i=i + 1, n=len(turns_rh)),
-                            )
-                        st.session_state["rhetoric"] = rh_results
-                        # Stage labeling runs on the same turns (batched, Haiku)
-                        prog_rh.progress(100, text=L("stage_labeling"))
-                        label_dialectical_stages(turns_rh, anthropic_key)
-                        st.session_state["stages"] = [
-                            {
-                                "turn_index":        t["turn_index"],
-                                "speaker":           t["speaker"],
-                                "start_ms":          t["start_ms"],
-                                "dialectical_stage": t.get("dialectical_stage", "argumentation"),
-                            }
-                            for t in turns_rh
-                        ]
-
-                    # Speaker Report button
-                    has_any_data = any([
-                        st.session_state.get("verdicts"),
-                        st.session_state.get("responses"),
-                        st.session_state.get("rhetoric"),
-                    ])
-                    col_sr, col_sr_note, col_sr_dl = st.columns([1, 2, 2])
-                    with col_sr:
-                        sr_clicked = st.button(L("run_report"), disabled=not (anthropic_key and has_any_data))
-                    with col_sr_note:
-                        if not has_any_data:
-                            st.caption(L("report_need_data"))
-                        else:
-                            st.caption(L("report_cost"))
-                    with col_sr_dl:
-                        if st.session_state.get("speaker_report"):
-                            st.download_button(
-                                label     = L("dl_speaker_report"),
-                                data      = json.dumps(
-                                    {"speaker_report": st.session_state["speaker_report"]},
-                                    indent=2, ensure_ascii=False,
-                                ).encode(),
-                                file_name = f"speaker_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                mime      = "application/json",
-                                key       = "dl_speaker_report_btn",
-                            )
-
-                    if sr_clicked and anthropic_key and has_any_data:
-                        verdicts_ss  = st.session_state.get("verdicts", {})
-                        responses_ss = st.session_state.get("responses") or []
-                        rhetoric_ss  = st.session_state.get("rhetoric") or []
-                        claims_mv    = [
-                            {**c, "verdict": verdicts_ss.get(c["id"], {}).get("verdict", "")}
-                            for c in analysis.get("claims", [])
-                        ]
-                        scores = compute_speaker_scores(claims_mv, responses_ss, rhetoric_ss)
-                        report: dict = {}
-                        sr_prog = st.progress(0)
-                        spk_ids = sorted(scores.keys())
-                        for i, sid in enumerate(spk_ids):
-                            name = speaker_names_an.get(sid, sid)
-                            sr_prog.progress(
-                                int(i / max(len(spk_ids), 1) * 100),
-                                text=LABELS["report_generating"][lang].format(name=name),
-                            )
-                            summary = generate_speaker_summary(sid, name, scores[sid], anthropic_key)
-                            report[sid] = {"score": scores[sid], "summary": summary}
-                        sr_prog.progress(100, text=L("prog_done"))
-                        st.session_state["speaker_report"] = report
 
                     claims   = analysis.get("claims", [])
                     threads  = analysis.get("threads", [])
