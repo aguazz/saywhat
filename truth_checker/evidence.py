@@ -236,3 +236,47 @@ def retrieve_evidence(
             break
 
     return merged
+
+
+def lookup_citation(citation_text: str) -> list[dict]:
+    """
+    Given a named citation string (e.g. 'Poore & Nemecek 2018 – Science',
+    'FAO World Livestock Report', 'IPCC AR6 Land Chapter'), try to find
+    a URL by searching Semantic Scholar and DuckDuckGo in parallel.
+
+    Used as a post-processing step in the verifier: when Claude cites an
+    authority from training knowledge, this resolves it to a real URL so
+    users have a clickable reference even for knowledge-based verdicts.
+
+    Returns up to 2 results. Empty list if nothing useful is found.
+    """
+    if not citation_text or len(citation_text.strip()) < 8:
+        return []
+
+    fetchers = {
+        "ss":  lambda: _fetch_semantic_scholar(citation_text, 2),
+        "ddg": lambda: _fetch_duckduckgo(citation_text),
+    }
+
+    raw: list[dict] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {executor.submit(fn): name for name, fn in fetchers.items()}
+        for future in as_completed(futures):
+            try:
+                raw.extend(future.result())
+            except Exception as exc:
+                logger.warning("lookup_citation fetcher raised: %s", exc)
+
+    # Deduplicate and tag so the UI can distinguish auto-linked from retrieved
+    seen: set[str] = set()
+    linked: list[dict] = []
+    for item in raw:
+        key = item.get("title", "").lower().strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        linked.append({**item, "auto_linked": True})
+        if len(linked) >= 2:
+            break
+
+    return linked

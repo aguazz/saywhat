@@ -3,6 +3,8 @@ import logging
 
 import anthropic
 
+from truth_checker.evidence import lookup_citation
+
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
@@ -166,6 +168,15 @@ def verify_claim(claim: dict, evidence: list[dict], api_key: str) -> dict:
     # Canonical rule: knowledge_based iff no retrieved sources were listed.
     # Overrides the model's self-report to keep the flag consistent with all_sources.
     knowledge_based = len(all_sources) == 0
+
+    # When knowledge-based, try to resolve the named key_source to a real URL.
+    # This gives users a clickable link even when Claude drew on training knowledge.
+    ks = str(data.get("key_source", ""))
+    if knowledge_based and ks and len(ks) > 8:
+        auto_linked = lookup_citation(ks)
+        if auto_linked:
+            all_sources = auto_linked
+            knowledge_based = False     # we now have at least one real source
 
     return {
         "claim_id":          claim["id"],
