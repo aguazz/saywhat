@@ -8,6 +8,27 @@ For the conceptual background behind each recommendation, see [how-it-works.md](
 
 ## Implemented
 
+### Filter / Search Claims (Prompts A–D) ✓
+
+A 12-dimension filter system across the Claims table, Argument Map, and Thread Timeline.
+
+**Filter panel (Claims sub-tab, above the claims table):**
+- **Row 1 — always visible**: Speaker · Claim type · Thread · 🔍 Text search (4 columns)
+- **Row 2 — collapsed expander** ("More filters"): Verdict multiselect, Argument status, Has fallacy, Has rhetorical device, Connections, Checkable, Certainty, Stance on motion — each widget rendered only when its source data exists in session state
+- **Row 3 — active filter chips**: one `✕ Label: value` chip per active filter + "Clear all"; rendered only when any filter is non-default
+
+All filters apply AND logic. Filter state stored in `st.session_state["claim_filter"]`, persistent across sub-tab switches. 22 new bilingual LABELS entries.
+
+**Cross-surface sync:**
+- **Claims table**: `apply_filters()` (module-level pure function) produces `filtered_claims`; a `"N of M claims"` count line appears when filtered. `filtered_claims` stored in session state for the other surfaces.
+- **Argument Map**: all claims always passed to `build_graph_html()` (full structure preserved); non-matching nodes fade to `#e0e0e0` / size 10, non-matching edges grey out. A caption reads `"Showing N of M claims · filter active"`. Implemented via `highlighted_ids: set | None` parameter in `truth_checker/visualizer.py`.
+- **Thread Timeline**: `_build_thread_timeline()` gained a `highlighted_ids` parameter; thread rows with no matching claims dim to `opacity: 0.12`; individual non-matching claim bars dim to `opacity: 0.12`.
+
+**Exploratory queries now answerable:**
+"Show unsupported claims" · "Claims with fallacies" · "Contested claims" · "Most connected claims" · "Isolated claims" · "Claims that support the motion" · "Claims in a specific thread" · "What speculative claims were made?"
+
+---
+
 ### Help Tour (Prompts A–D) ✓
 
 Six interactive `st.dialog` modals explaining the analysis system, accessible from two surfaces:

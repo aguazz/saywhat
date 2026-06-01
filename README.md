@@ -29,6 +29,7 @@ fact-checks each speaker's claims against peer-reviewed scientific literature.
 - Detects logical fallacies and rhetorical devices per speaker turn
 - Scores each speaker: factual reliability and direct-response engagement rate
 - Generates a plain-language narrative summary of each speaker's debate performance
+- **Find / Filter Claims**: 12-dimension filter panel (speaker, type, thread, text search, verdict, argument status, fallacies, rhetorical devices, connections, checkable, certainty, stance) with live cross-surface sync to the Argument Map and Thread Timeline
 
 See [docs/how-it-works.md](docs/how-it-works.md) for a full explanation of how the analysis works.
 
