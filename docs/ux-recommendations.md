@@ -131,6 +131,118 @@ All eight items below are live in `app.py` (and `truth_checker/visualizer.py` fo
 
 ---
 
+### Visualizations & Metrics Redesign (Prompts 1A–4B) ✓
+
+Seven prompts that replace the minimal Thread Timeline claim card with a full information panel, add thread-level and debate-level metrics, and surface the debate motion.
+
+---
+
+#### Prompt 1A — Enriched claim card ✓
+
+**Location:** Thread Timeline sub-tab — the detail panel that appears below the timeline when a claim is selected via the dropdown.
+
+**What was done:** Replaced the 3-line minimal card with a `st.container(border=True)` panel with six sections, each gated on data availability:
+
+1. **Claim text** — full text (not truncated) as a blockquote, followed by a metadata line: speaker · timestamp · thread · dialectical stage (if stages have been run).
+2. **Type & status badges** — claim type tag, checkable/not-checkable badge, survivability dot + label (grounded / contested / unattacked).
+3. **Verdict section** — colored badge + confidence %, one-sentence AI explanation, for/against summaries for contested claims, key source. Only shown when Fact-Check has run and the claim is checkable.
+4. **Connections section** — "Responds to N · Challenged by M · Supported by K" summary line, then bullet lists of connected claim texts (speaker + first 70 chars). Only shown when Detect Responses has run.
+5. **Rhetoric section** — fallacies and rhetorical devices with labels and quoted text, matched to the turn containing this claim. Only shown when Analyze Rhetoric has run and entries are found.
+6. **Thread context expander** — other claims in the same thread in turn order (unchanged from before).
+
+6 new bilingual LABELS entries: `card_stage`, `card_connections`, `card_responds_to`, `card_challenged_by`, `card_supported_by`, `card_rhetoric`.
+
+---
+
+#### Prompt 1B — Mini neighbourhood map ✓
+
+**Location:** Thread Timeline sub-tab — inside the enriched claim card, between the Connections section and the Thread context expander.
+
+**What was done:** Added a toggle button ("Show neighbourhood map" / "Hide neighbourhood map"). When opened:
+- Collects all claim IDs directly connected to the selected claim (from response edges).
+- Filters claims and responses to that set only.
+- Renders an inline pyvis graph at 320 px height via `components.html()`, with full opacity for all nodes (no `highlighted_ids`).
+- If the claim has no connections, shows a "no direct argument connections" caption instead.
+- Section is hidden entirely when Detect Responses has not been run.
+
+3 new bilingual LABELS entries: `card_show_minimap`, `card_hide_minimap`, `card_no_connections`.
+
+---
+
+#### Prompt 2 — Thread scorecards ✓
+
+**Location:** Thread Timeline sub-tab — a collapsed "Thread Scorecards" expander above the hint caption and timeline visual.
+
+**What was done:** Added a two-level nested expander structure. The outer expander ("Thread Scorecards") is collapsed by default. Inside, each thread has its own collapsed sub-expander titled with the thread topic. Opening a thread shows a dynamic metric row:
+
+| Metric | Condition |
+|--------|-----------|
+| Claims (depth) | always |
+| Speaker balance (e.g. "Alex 60% · Sam 40%") | always |
+| Survival rate (% grounded) | when Detect Responses has run |
+| Verdict rate (% checkable claims with conclusive verdict) | when Fact-Check has run |
+| Response edges (within-thread response count) | when Detect Responses has run |
+
+6 new bilingual LABELS entries: `thread_scorecard_heading`, `thread_depth`, `thread_balance`, `thread_survival`, `thread_verdict_rate`, `thread_responses`.
+
+---
+
+#### Prompt 3A — `compute_debate_scores()` ✓
+
+**Location:** `truth_checker/scorer.py` — new top-level function.
+
+**What was done:** Added `compute_debate_scores(claims, responses, stages, threads) -> dict` returning five debate-level metrics:
+
+| Key | Measure |
+|-----|---------|
+| `response_density` | response edges / total claims |
+| `evasion_rate` | evades+ignores responses / total responses |
+| `dialectical_completeness` | distinct stages present / 4 |
+| `thread_coverage` | % of threads where ≥ 2 speakers contributed |
+| `concession_count` | total `concedes` response edges |
+
+Returns an empty dict if claims is empty. All floats rounded to 3 decimal places.
+
+---
+
+#### Prompt 3B — Debate scorecard banner ✓
+
+**Location:** `app.py` — persistent 5-column metric row inserted between the run-buttons row and the analysis sub-tabs.
+
+**What was done:**
+- `compute_debate_scores()` is called at the Speaker Report button click and stored in `st.session_state["debate_score"]`.
+- When present, a 5-metric banner renders between the run-buttons divider and `st.tabs([...])`, always visible once the Speaker Report has been generated.
+- Each metric has a bilingual `help=` tooltip explaining what it measures and what a high/low value means.
+
+10 new bilingual LABELS entries: 5 metric names (`ds_response_density`, `ds_evasion_rate`, `ds_completeness`, `ds_thread_coverage`, `ds_concessions`) and 5 help strings.
+
+---
+
+#### Prompt 4A — Speaker metrics: rebuttal rate and thread engagement ✓
+
+**Location:** `truth_checker/scorer.py` (new fields), `app.py` (Speaker Report rendering).
+
+**What was done:**
+- `compute_speaker_scores()` signature extended with `threads: list[dict] | None = None`.
+- Two new fields added per speaker:
+  - `thread_engagement` — distinct threads contributed / total threads. Measures topic breadth.
+  - `rebuttal_rate` — distinct opponent claims responded to / total opponent claims. Measures how actively the speaker engaged with the other side.
+- Speaker Report metric row expanded from 4 → 6 columns; `mc5` = thread engagement, `mc6` = rebuttal rate, both with `%` formatting and `help=` tooltips.
+
+4 new bilingual LABELS entries: `metric_thread_engagement`, `metric_rebuttal_rate`, `help_thread_engagement`, `help_rebuttal_rate`.
+
+---
+
+#### Prompt 4B — Motion surfacing ✓
+
+**Location:** Thread Timeline sub-tab (top of content branch) and Speaker Report sub-tab (above per-speaker cards).
+
+**What was done:** Added a single `st.caption(L("motion_caption").format(motion=...))` line at the top of both locations, shown only when a debate motion has been set. The caption reads "Motion: *{motion}*". The existing per-speaker stance breakdown (pro/con/neutral) already appears below each speaker card when a motion is set, so no other changes were needed.
+
+1 new bilingual LABELS entry: `motion_caption`.
+
+---
+
 ## Pending: Nice to Have
 
 These improve the experience but are not blocking for launch.

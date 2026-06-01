@@ -27,9 +27,12 @@ fact-checks each speaker's claims against peer-reviewed scientific literature.
 - Builds an interactive argument map: claims as nodes, responses as directed edges
 - Retrieves evidence from Wikipedia and Semantic Scholar; returns a verdict per checkable claim
 - Detects logical fallacies and rhetorical devices per speaker turn
-- Scores each speaker: factual reliability and direct-response engagement rate
+- Scores each speaker: factual reliability, direct-response engagement rate, thread engagement, and rebuttal rate
 - Generates a plain-language narrative summary of each speaker's debate performance
 - **Find / Filter Claims**: 12-dimension filter panel (speaker, type, thread, text search, verdict, argument status, fallacies, rhetorical devices, connections, checkable, certainty, stance) with live cross-surface sync to the Argument Map and Thread Timeline
+- **Debate scorecard banner**: 5 debate-level metrics (response density, evasion rate, dialectical completeness, thread coverage, concessions) shown once the Speaker Report is generated
+- **Enriched claim card**: clicking any claim in the Thread Timeline shows a full card — type, dialectical stage, verdict, connections with linked claim texts, rhetorical devices and fallacies, survivability status, and an inline mini argument map of the claim's direct neighbourhood
+- **Thread scorecards**: per-thread depth, speaker balance, survival rate, verdict rate, and response-edge count, accessible as a collapsed section in the Thread Timeline tab
 
 See [docs/how-it-works.md](docs/how-it-works.md) for a full explanation of how the analysis works.
 
@@ -61,7 +64,8 @@ debate-fact-checker/
 │   ├── evidence.py     Retrieves Wikipedia + Semantic Scholar sources
 │   ├── verifier.py     Generates fact-check verdicts (Claude Sonnet)
 │   ├── rhetorician.py  Detects fallacies and rhetorical devices
-│   ├── scorer.py       Computes per-speaker reliability and engagement scores
+│   ├── scorer.py       Computes per-speaker and debate-level scores (reliability, engagement,
+│   │                   rebuttal rate, thread engagement, response density, etc.)
 │   ├── reporter.py     Generates plain-language speaker narrative summaries
 │   ├── visualizer.py   Builds pyvis/networkx argument graph
 │   ├── translator.py   Translates claims EN ↔ ES on demand
