@@ -2754,82 +2754,90 @@ def main() -> None:
 
                             # ── Rhetorical profile overview chart ──────────────
                             st.subheader(L("rhetoric_profile_chart"))
-                            _profile_rows = {}
-                            for _psid, _pturns in spk_rhetoric.items():
-                                _pname = speaker_names_an.get(_psid, _psid)
-                                _f_cnt = sum(len(t.get("fallacies", [])) for t in _pturns)
-                                _d_cnt = sum(
-                                    len([d for d in t.get("rhetorical_devices", [])
-                                         if not d.get("is_fallacy", False)])
-                                    for t in _pturns
-                                )
-                                # Collect top-3 fallacy types for the tooltip label
-                                _ftypes: dict[str, int] = {}
-                                for _pt in _pturns:
-                                    for _pf in _pt.get("fallacies", []):
-                                        _ft = _pf.get("label") or _pf.get("type", "")
-                                        if _ft:
-                                            _ftypes[_ft] = _ftypes.get(_ft, 0) + 1
-                                _top_ft = sorted(_ftypes, key=lambda x: -_ftypes[x])[:3]
-                                _profile_rows[_pname] = {
-                                    "f_cnt": _f_cnt,
-                                    "d_cnt": _d_cnt,
-                                    "top_ft": _top_ft,
+                            _rh_spk_ids = sorted(spk_rhetoric.keys())
+                            _rh_totals = {}
+                            for _rsid in _rh_spk_ids:
+                                _rturns = spk_rhetoric[_rsid]
+                                _rh_totals[_rsid] = {
+                                    "f": sum(len(t.get("fallacies", [])) for t in _rturns),
+                                    "d": sum(
+                                        len([d for d in t.get("rhetorical_devices", [])
+                                             if not d.get("is_fallacy", False)])
+                                        for t in _rturns
+                                    ),
                                 }
+                            _rh_max = max(
+                                max(v["f"], v["d"]) for v in _rh_totals.values()
+                            ) if _rh_totals else 1
+                            _RH_MAX_H = 140  # px
 
-                            if _profile_rows:
-                                _lbl_f = L("rhetoric_fallacies")
-                                _lbl_d = L("rhetoric_devices")
-                                _max_rh = max(
-                                    max(r["f_cnt"], r["d_cnt"])
-                                    for r in _profile_rows.values()
-                                ) or 1
-                                _rh_chart_html = (
-                                    '<div style="display:flex;flex-direction:column;gap:14px;'
-                                    'margin:12px 0 20px 0">'
+                            # Count labels above bars
+                            _rh_r1 = '<div style="display:flex;gap:20px;margin:12px 0 2px 0">'
+                            for _rsid in _rh_spk_ids:
+                                _fv = _rh_totals[_rsid]["f"]
+                                _dv = _rh_totals[_rsid]["d"]
+                                _rh_r1 += (
+                                    f'<div style="flex:1;display:flex;gap:4px">'
+                                    f'<div style="flex:1;text-align:center;font-size:0.8em;color:#888">'
+                                    f'{_fv}</div>'
+                                    f'<div style="flex:1;text-align:center;font-size:0.8em;color:#888">'
+                                    f'{_dv}</div>'
+                                    f'</div>'
                                 )
-                                for _pname, _prow in _profile_rows.items():
-                                    _fc = _prow["f_cnt"]
-                                    _dc = _prow["d_cnt"]
-                                    _ft_note = (
-                                        " · " + ", ".join(_prow["top_ft"])
-                                        if _prow["top_ft"] else ""
-                                    )
-                                    _fw = _fc / _max_rh * 100
-                                    _dw = _dc / _max_rh * 100
-                                    _rh_chart_html += (
-                                        f'<div>'
-                                        f'<div style="font-weight:600;font-size:0.9em;'
-                                        f'margin-bottom:4px">{_pname}</div>'
-                                        # Fallacies bar
-                                        f'<div style="display:flex;align-items:center;gap:8px;'
-                                        f'margin-bottom:3px;font-size:0.82em">'
-                                        f'<div style="min-width:140px;text-align:right;color:#888">'
-                                        f'{_lbl_f}{_ft_note}</div>'
-                                        f'<div style="flex:1;background:rgba(128,128,128,0.12);'
-                                        f'border-radius:3px;height:20px">'
-                                        f'<div style="width:{_fw:.1f}%;background:#d62728;'
-                                        f'border-radius:3px;height:100%;min-width:{4 if _fc else 0}px">'
-                                        f'</div></div>'
-                                        f'<div style="min-width:28px;color:#aaa">{_fc}</div>'
-                                        f'</div>'
-                                        # Devices bar
-                                        f'<div style="display:flex;align-items:center;gap:8px;'
-                                        f'font-size:0.82em">'
-                                        f'<div style="min-width:140px;text-align:right;color:#888">'
-                                        f'{_lbl_d}</div>'
-                                        f'<div style="flex:1;background:rgba(128,128,128,0.12);'
-                                        f'border-radius:3px;height:20px">'
-                                        f'<div style="width:{_dw:.1f}%;background:#1f77b4;'
-                                        f'border-radius:3px;height:100%;min-width:{4 if _dc else 0}px">'
-                                        f'</div></div>'
-                                        f'<div style="min-width:28px;color:#aaa">{_dc}</div>'
-                                        f'</div>'
-                                        f'</div>'
-                                    )
-                                _rh_chart_html += "</div>"
-                                st.markdown(_rh_chart_html, unsafe_allow_html=True)
-                                st.divider()
+                            _rh_r1 += '</div>'
+
+                            # Bars
+                            _rh_r2 = (
+                                '<div style="display:flex;gap:20px;align-items:flex-end;'
+                                f'height:{_RH_MAX_H}px;'
+                                'border-bottom:1px solid rgba(128,128,128,0.2)">'
+                            )
+                            for _rsid in _rh_spk_ids:
+                                _fv = _rh_totals[_rsid]["f"]
+                                _dv = _rh_totals[_rsid]["d"]
+                                _fh = max(4, int(_fv / _rh_max * _RH_MAX_H)) if _fv else 0
+                                _dh = max(4, int(_dv / _rh_max * _RH_MAX_H)) if _dv else 0
+                                _spkn = speaker_names_an.get(_rsid, _rsid)
+                                _rh_r2 += (
+                                    f'<div style="flex:1;display:flex;gap:4px;align-items:flex-end">'
+                                    f'<div title="{_spkn}: {_fv} {L("rhetoric_fallacies").lower()}" '
+                                    f'style="flex:1;height:{_fh}px;background:#d62728;'
+                                    f'border-radius:4px 4px 0 0"></div>'
+                                    f'<div title="{_spkn}: {_dv} {L("rhetoric_devices").lower()}" '
+                                    f'style="flex:1;height:{_dh}px;background:#1f77b4;'
+                                    f'border-radius:4px 4px 0 0"></div>'
+                                    f'</div>'
+                                )
+                            _rh_r2 += '</div>'
+
+                            # Speaker labels
+                            _rh_r3 = '<div style="display:flex;gap:20px;margin:4px 0 2px 0">'
+                            for _rsid in _rh_spk_ids:
+                                _spkn = speaker_names_an.get(_rsid, _rsid)
+                                _rh_r3 += (
+                                    f'<div style="flex:1;text-align:center;font-size:0.85em;'
+                                    f'font-weight:600;color:#555">{_spkn}</div>'
+                                )
+                            _rh_r3 += '</div>'
+
+                            # Legend
+                            _rh_r4 = (
+                                '<div style="display:flex;gap:16px;font-size:0.8em;'
+                                'color:#555;margin:6px 0 14px 0">'
+                                f'<span><span style="display:inline-block;width:12px;height:12px;'
+                                f'background:#d62728;border-radius:2px;vertical-align:middle;'
+                                f'margin-right:5px"></span>{L("rhetoric_fallacies")}</span>'
+                                f'<span><span style="display:inline-block;width:12px;height:12px;'
+                                f'background:#1f77b4;border-radius:2px;vertical-align:middle;'
+                                f'margin-right:5px"></span>{L("rhetoric_devices")}</span>'
+                                '</div>'
+                            )
+
+                            st.markdown(
+                                _rh_r1 + _rh_r2 + _rh_r3 + _rh_r4,
+                                unsafe_allow_html=True,
+                            )
+                            st.divider()
 
                             for sid in sorted(spk_rhetoric.keys()):
                                 turns_for_spk = spk_rhetoric[sid]
