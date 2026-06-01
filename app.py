@@ -6,8 +6,6 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
-
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -321,6 +319,18 @@ LABELS = {
     "fc_kb_col":      {"English": "Basis",                "Español": "Base"},
     "fc_sources_col": {"English": "Sources",              "Español": "Fuentes"},
     "fc_thread_col":  {"English": "Topic",                "Español": "Tema"},
+    "fc_conf_help": {
+        "English": (
+            "How clearly the available evidence supported the verdict. "
+            "An AI-estimated signal: high = clear evidence, low = ambiguous or limited sources. "
+            "Not a statistically calibrated probability."
+        ),
+        "Español": (
+            "Con qué claridad la evidencia disponible respaldó el veredicto. "
+            "Una señal estimada por IA: alta = evidencia clara, baja = evidencia ambigua o limitada. "
+            "No es una probabilidad estadísticamente calibrada."
+        ),
+    },
     "fc_disclaimer":  {
         "English": (
             "🧠 = verdict based on Claude's training knowledge  ·  "
@@ -2341,9 +2351,13 @@ def main() -> None:
                         # ── Overview table ──────────────────────────────────────
                         _th = "padding:6px 8px;text-align:left;border-bottom:2px solid #dee2e6;font-size:0.85em"
                         _td = "padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:0.82em;vertical-align:top"
+                        _conf_hdr = (
+                            f'<abbr title="{L("fc_conf_help")}" '
+                            f'style="cursor:help;text-decoration:underline dotted #888">Conf.</abbr>'
+                        )
                         _fc_hdrs = [
                             L("col_speaker"), L("fc_thread_col"), L("col_claim"),
-                            L("col_verdict"), "Conf.", L("fc_kb_col"), L("fc_sources_col"),
+                            L("col_verdict"), _conf_hdr, L("fc_kb_col"), L("fc_sources_col"),
                         ]
                         _fc_hdr_html = "".join(f"<th style='{_th}'>{h}</th>" for h in _fc_hdrs)
                         _fc_rows = ""
@@ -2571,16 +2585,40 @@ def main() -> None:
                                 "argumentation": "stage_argumentation",
                                 "concluding":    "stage_concluding",
                             }
-                            # Distribution bar chart — turns per stage
+                            # Distribution bar chart — turns per stage (colored to match chips)
                             _stage_counts: dict[str, int] = {}
+                            _stage_color_map: dict[str, str] = {}
                             for _si in _stages:
                                 _stg = _si.get("dialectical_stage", "argumentation")
                                 _lbl = L(_STAGE_LABEL_KEY.get(_stg, "stage_argumentation"))
                                 _stage_counts[_lbl] = _stage_counts.get(_lbl, 0) + 1
-                            _stage_df = pd.DataFrame.from_dict(
-                                _stage_counts, orient="index", columns=["turns"]
-                            )
-                            st.bar_chart(_stage_df, use_container_width=True)
+                                _stage_color_map[_lbl] = _STAGE_COLORS.get(_stg, "#cccccc")
+                            if _stage_counts:
+                                _max_sc = max(_stage_counts.values()) or 1
+                                _sc_html = (
+                                    '<div style="display:flex;flex-direction:column;'
+                                    'gap:10px;margin:12px 0 16px 0">'
+                                )
+                                for _lbl, _cnt in sorted(
+                                    _stage_counts.items(), key=lambda x: -x[1]
+                                ):
+                                    _sc_color = _stage_color_map.get(_lbl, "#cccccc")
+                                    _sc_w = _cnt / _max_sc * 100
+                                    _sc_html += (
+                                        f'<div style="display:flex;align-items:center;'
+                                        f'gap:8px;font-size:0.85em">'
+                                        f'<div style="min-width:120px;text-align:right;'
+                                        f'color:#555">{_lbl}</div>'
+                                        f'<div style="flex:1;background:rgba(128,128,128,0.12);'
+                                        f'border-radius:3px;height:22px">'
+                                        f'<div style="width:{_sc_w:.1f}%;background:{_sc_color};'
+                                        f'border-radius:3px;height:100%;'
+                                        f'min-width:{4 if _cnt else 0}px"></div></div>'
+                                        f'<div style="min-width:28px;color:#aaa">{_cnt}</div>'
+                                        f'</div>'
+                                    )
+                                _sc_html += '</div>'
+                                st.markdown(_sc_html, unsafe_allow_html=True)
                             # Compact colored turn-by-turn sequence
                             _boxes = []
                             for _si in sorted(_stages, key=lambda x: x.get("turn_index", 0)):
