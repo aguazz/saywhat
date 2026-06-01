@@ -2455,10 +2455,6 @@ def main() -> None:
                             st.info(L("analysis_no_claims"))
 
                         # ── Legend ─────────────────────────────────────────────
-                        _map_help_col, _ = st.columns([3, 7])
-                        with _map_help_col:
-                            if st.button(f"→ {L('help_link_responses')}", key="help_responses_map"):
-                                help_dialogs.responses_dialog(lang)
                         st.markdown(f"#### {L('legend_heading')}")
                         _SPEAKER_COLORS_VIS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
                         spk_sorted = sorted({c["speaker"] for c in analysis.get("claims", [])})
