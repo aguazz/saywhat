@@ -2776,6 +2776,9 @@ def main() -> None:
                                 _sep = (
                                     '<hr style="border:none;border-top:1px solid '
                                     'rgba(255,255,255,0.3);margin:5px 0">'
+                                    '<div style="font-size:0.72em;opacity:0.65;margin-bottom:3px">'
+                                    '⚠ fallacy &nbsp;·&nbsp; ✦ rhetorical device'
+                                    '</div>'
                                     if _rhet_lines else ""
                                 )
                                 _boxes.append(

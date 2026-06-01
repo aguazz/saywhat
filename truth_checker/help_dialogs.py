@@ -229,12 +229,16 @@ def rhetoric_dialog(lang: str = "English") -> None:
             "| Whataboutism | Desvía señalando los fallos del otro |"
         )
         st.markdown("**Recursos retóricos**")
+        st.markdown("**Recursos retóricos** (marcados ✦ en la línea de tiempo)")
         st.markdown(
             "| Recurso | Qué hace |\n"
             "|---------|----------|\n"
             "| Apelación a la autoridad | Cita a un experto o institución legítima |\n"
+            "| Apelación a la emoción | Usa la resonancia emocional honestamente para ilustrar un punto |\n"
             "| Ejemplo vívido | Hace concreta una idea abstracta |\n"
-            "| Prueba social | Apela al consenso amplio |\n"
+            "| Prueba social | Apela al consenso amplio o la adopción generalizada |\n"
+            "| Testimonio personal | Usa la experiencia propia como evidencia |\n"
+            "| Efecto de encuadre | Usa la elección de palabras para presentar los hechos favorablemente |\n"
             "| Lenguaje cargado | Palabras con carga emocional |"
         )
         st.caption(
@@ -258,13 +262,16 @@ def rhetoric_dialog(lang: str = "English") -> None:
             "| Hasty generalisation | Broad conclusion from too few cases |\n"
             "| Whataboutism | Deflects by pointing to the other side's faults |"
         )
-        st.markdown("**Rhetorical devices**")
+        st.markdown("**Rhetorical devices** (marked ✦ in the timeline)")
         st.markdown(
             "| Device | What it does |\n"
             "|--------|-------------|\n"
             "| Appeal to authority | Cites a relevant expert or institution |\n"
+            "| Appeal to emotion | Uses emotional resonance honestly to make a point |\n"
             "| Vivid example | Makes an abstract point concrete |\n"
-            "| Social proof | Appeals to wide consensus |\n"
+            "| Social proof | Appeals to wide consensus or broad adoption |\n"
+            "| Personal testimony | Uses first-hand experience as evidence |\n"
+            "| Framing effect | Uses word choice to present facts in a favourable light |\n"
             "| Loaded language | Emotionally charged word choice |"
         )
         st.caption(
