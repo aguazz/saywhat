@@ -2877,16 +2877,32 @@ def main() -> None:
                         with _tgl2:
                             show_rt_cb = st.checkbox(L("show_reasoning_targets"), value=False)
 
+                        _fc_all  = analysis.get("claims", [])
+                        _fc_filt = st.session_state.get("filtered_claims")
+                        _fc_use  = _fc_filt if _fc_filt is not None else _fc_all
+                        _hi_ids  = (
+                            {c["id"] for c in _fc_use}
+                            if _fc_filt is not None and len(_fc_filt) < len(_fc_all)
+                            else None
+                        )
+
                         graph_html = build_graph_html(
-                            analysis.get("claims", []),
+                            _fc_all,
                             responses,
                             speaker_names_an,
                             survivability=st.session_state.get("survivability"),
                             show_premises=show_premises_cb,
                             show_reasoning_targets=show_rt_cb,
                             verdicts=st.session_state.get("verdicts"),
+                            highlighted_ids=_hi_ids,
                         )
                         if graph_html:
+                            if _hi_ids is not None:
+                                st.caption(
+                                    LABELS["graph_filter_caption"][lang].format(
+                                        n=len(_fc_use), m=len(_fc_all)
+                                    )
+                                )
                             components.html(graph_html, height=620, scrolling=False)
                             st.download_button(
                                 label     = "⬇  Download argument map (.html)",

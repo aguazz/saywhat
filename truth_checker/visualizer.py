@@ -60,6 +60,7 @@ def build_graph_html(
     show_premises: bool = True,
     show_reasoning_targets: bool = False,
     verdicts: dict | None = None,
+    highlighted_ids: set | None = None,
 ) -> str:
     """
     Build an interactive pyvis argument graph and return it as an HTML string.
@@ -123,9 +124,14 @@ def build_graph_html(
         # Encode survivability as border width + color when available
         surv_status = (survivability or {}).get(cid, "unattacked")
         border_color, border_width = _SURV_BORDER.get(surv_status, (None, 1))
-        node_color = (
-            {"background": bg, "border": border_color} if border_color else bg
-        )
+        if highlighted_ids is not None and cid not in highlighted_ids:
+            node_color   = {"background": "#e0e0e0", "border": "#cccccc"}
+            size         = 10
+            border_width = 1
+        else:
+            node_color = (
+                {"background": bg, "border": border_color} if border_color else bg
+            )
 
         net.add_node(
             cid, label=label, title=title,
@@ -198,7 +204,12 @@ def build_graph_html(
                 arrows="",
             )
             # Visible undercut arrow from U to proxy
-            _pink = "#e377c2"
+            _pink = (
+                "#e0e0e0"
+                if highlighted_ids is not None
+                and (to_id not in highlighted_ids or from_id not in highlighted_ids)
+                else "#e377c2"
+            )
             net.add_edge(
                 to_id,
                 proxy_id,
@@ -207,7 +218,12 @@ def build_graph_html(
                 arrows="to",
             )
         else:
-            color = _EDGE_COLORS.get(rel, "#aaaaaa")
+            if (highlighted_ids is not None
+                    and (from_id not in highlighted_ids
+                         or to_id not in highlighted_ids)):
+                color = "#e0e0e0"
+            else:
+                color = _EDGE_COLORS.get(rel, "#aaaaaa")
             desc  = _REL_DESCRIPTIONS.get(rel, "")
             title = f"{rel}: {explanation}" + (f"\n\n({desc})" if desc else "")
             net.add_edge(
