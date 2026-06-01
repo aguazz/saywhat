@@ -2710,6 +2710,13 @@ def main() -> None:
                                 st.markdown(
                                     _r1 + _r2 + _r3 + _r4, unsafe_allow_html=True
                                 )
+                            # Build rhetoric lookup: turn start_ms → rhetoric data
+                            _rhetoric_by_ms: dict[int, dict] = {}
+                            _rhet_ss = st.session_state.get("rhetoric")
+                            if _rhet_ss:
+                                for _ritem in _rhet_ss:
+                                    _rhetoric_by_ms[_ritem.get("start_ms", -1)] = _ritem
+
                             # Build turn-text lookup: turn start_ms → full turn text
                             _turn_text_map: dict[int, str] = {}
                             _prev_u_spk: str | None = None
@@ -2739,6 +2746,38 @@ def main() -> None:
                                 _spknm = speaker_names_an.get(_si["speaker"], _si["speaker"])
                                 _raw   = _turn_text_map.get(_si.get("start_ms", 0), "")
                                 _excerpt = (_raw[:220] + "…") if len(_raw) > 220 else _raw
+                                # Rhetoric annotation for this turn
+                                _rhet_item = _rhetoric_by_ms.get(_si.get("start_ms", 0), {})
+                                _rhet_lines = ""
+                                for _rf2 in _rhet_item.get("fallacies", []):
+                                    _rl = _rf2.get("label") or _rf2.get("type", "")
+                                    _rq = _rf2.get("quote", "")
+                                    _rq_s = (_rq[:60] + "…") if len(_rq) > 60 else _rq
+                                    if _rl:
+                                        _rhet_lines += (
+                                            f'<div style="margin-top:3px;opacity:0.92">'
+                                            f'⚠ <strong>{_rl}</strong>'
+                                            + (f' — <em>"{_rq_s}"</em>' if _rq_s else "")
+                                            + '</div>'
+                                        )
+                                for _rd2 in _rhet_item.get("rhetorical_devices", []):
+                                    if _rd2.get("is_fallacy", False):
+                                        continue
+                                    _rl = _rd2.get("label") or _rd2.get("type", "")
+                                    _rq = _rd2.get("quote", "")
+                                    _rq_s = (_rq[:60] + "…") if len(_rq) > 60 else _rq
+                                    if _rl:
+                                        _rhet_lines += (
+                                            f'<div style="margin-top:3px;opacity:0.85">'
+                                            f'✦ <strong>{_rl}</strong>'
+                                            + (f' — <em>"{_rq_s}"</em>' if _rq_s else "")
+                                            + '</div>'
+                                        )
+                                _sep = (
+                                    '<hr style="border:none;border-top:1px solid '
+                                    'rgba(255,255,255,0.3);margin:5px 0">'
+                                    if _rhet_lines else ""
+                                )
                                 _boxes.append(
                                     f'<details style="display:inline-block;'
                                     f'vertical-align:top;margin:2px">'
@@ -2751,7 +2790,7 @@ def main() -> None:
                                     f'font-size:0.8em;line-height:1.45;max-width:300px;'
                                     f'white-space:normal;'
                                     f'box-shadow:0 3px 10px rgba(0,0,0,0.25)">'
-                                    f'{_excerpt}</div>'
+                                    f'{_excerpt}{_sep}{_rhet_lines}</div>'
                                     f'</details>'
                                 )
                             st.markdown(
