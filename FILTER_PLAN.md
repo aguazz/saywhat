@@ -9,7 +9,7 @@
 | A | LABELS + `apply_filters()` helper + derived attribute maps | `app.py` | ✓ Done |
 | B | Replace 2-filter block with full filter panel + chips | `app.py` | ✓ Done |
 | C | Argument Map: fade non-matching nodes/edges | `app.py`, `truth_checker/visualizer.py` | ✓ Done |
-| D | Thread Timeline: dim non-matching claim blocks | `app.py` | ☐ Pending |
+| D | Thread Timeline: dim non-matching claim blocks | `app.py` | ✓ Done |
 
 ---
 

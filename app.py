@@ -826,6 +826,7 @@ def _build_thread_timeline(
     threads: list[dict],
     speaker_names: dict,
     selected_claim_id: str | None = None,
+    highlighted_ids: set | None = None,
 ) -> str:
     """
     Build an HTML thread-timeline showing all threads as parallel horizontal lanes.
@@ -885,8 +886,12 @@ def _build_thread_timeline(
         label   = (topic[:26] + "…") if len(topic) > 26 else topic
         t_claims = by_thread.get(tid, [])
 
-        # Dim rows that are not the focus thread
-        row_opacity = "1" if (focus_tid is None or focus_tid == tid) else "0.25"
+        # Dim row if no claims match the highlight set, or if not the focus thread
+        if highlighted_ids is not None:
+            _row_has_match = any(c["id"] in highlighted_ids for c in t_claims)
+            row_opacity = "1" if _row_has_match else "0.12"
+        else:
+            row_opacity = "1" if (focus_tid is None or focus_tid == tid) else "0.25"
 
         html += (
             f'<div style="display:flex;align-items:center;margin-bottom:{GAP}px;'
@@ -922,7 +927,10 @@ def _build_thread_timeline(
             border     = "3px solid #FFD700" if is_sel else "1px solid rgba(255,255,255,0.2)"
             shadow     = ";box-shadow:0 0 0 2px #FFD700,0 0 10px rgba(255,215,0,0.6)" if is_sel else ""
             z_idx      = "20" if is_sel else "1"
-            bar_opacity = "1" if is_sel else ("0.45" if is_restat else "0.85")
+            if highlighted_ids is not None and c["id"] not in highlighted_ids:
+                bar_opacity = "0.12"
+            else:
+                bar_opacity = "1" if is_sel else ("0.45" if is_restat else "0.85")
             # Diagonal stripe pattern for restatements
             bg_extra   = (
                 "background-image:repeating-linear-gradient("
@@ -2648,11 +2656,19 @@ def main() -> None:
                         )
 
                         # ── Timeline visualization ─────────────────────────────
+                        _tl_fc     = st.session_state.get("filtered_claims")
+                        _tl_fc_all = analysis.get("claims", [])
+                        _tl_hi     = (
+                            {c["id"] for c in _tl_fc}
+                            if _tl_fc is not None and len(_tl_fc) < len(_tl_fc_all)
+                            else None
+                        )
                         _tl_html = _build_thread_timeline(
                             _tl_claims,
                             _tl_threads,
                             speaker_names_an,
                             selected_claim_id=_sel_cid or None,
+                            highlighted_ids=_tl_hi,
                         )
                         if _tl_html:
                             st.markdown(_tl_html, unsafe_allow_html=True)
