@@ -33,6 +33,7 @@ from truth_checker.visualizer  import build_graph_html
 from truth_checker.dung        import compute_grounded_extension
 from truth_checker.deduplicator import mark_restatements
 from truth_checker              import help_dialogs
+from streamlit_javascript import st_javascript
 from truth_checker.stage_labeler import label_dialectical_stages
 
 load_dotenv()  # loads .env for local dev; no-op on Streamlit Community Cloud
@@ -327,12 +328,18 @@ LABELS = {
     "timeline_thread":   {"English": "Thread",                "Español": "Hilo"},
     "timeline_legend":   {"English": "Speaker colours:",      "Español": "Colores por hablante:"},
     "timeline_hint": {
-        "English": "Hover over any block to see the claim text. Select a claim above to highlight it and dim the other threads.",
-        "Español": "Pasa el cursor sobre cualquier bloque para ver el texto. Selecciona una afirmación arriba para resaltarla.",
+        "English": "Hover over any block to preview the claim. Click any block to open its full details below.",
+        "Español": "Pasa el cursor sobre un bloque para previsualizar la afirmación. Haz clic para ver todos sus detalles abajo.",
     },
+    "timeline_restat_legend": {
+        "English": "⟋ diagonal stripes = claim repeated from an earlier turn",
+        "Español": "⟋ rayas diagonales = afirmación repetida de un turno anterior",
+    },
+    "timeline_clear_sel": {"English": "✕ Clear selection", "Español": "✕ Quitar selección"},
     # ── Thread scorecards ───────────────────────────────────────────────────
     "thread_scorecard_heading": {"English": "Thread Scorecards",  "Español": "Resumen por hilos"},
     "thread_depth":      {"English": "Claims",          "Español": "Afirmaciones"},
+    "thread_speakers":   {"English": "Speakers",        "Español": "Hablantes"},
     "thread_balance":    {"English": "Speaker balance", "Español": "Balance de hablantes"},
     "thread_survival":   {"English": "Survival rate",  "Español": "Tasa de supervivencia"},
     "thread_verdict_rate":{"English": "Verdict rate",  "Español": "Tasa de veredictos"},
@@ -1039,8 +1046,10 @@ def _build_thread_timeline(
                 "rgba(0,0,0,0.18) 3px,rgba(0,0,0,0.18) 6px);"
             ) if is_restat else ""
 
+            _tt_safe = tooltip.replace('"', '&quot;').replace("'", "&#39;")
             html += (
-                f'<div title="{tooltip}" style="position:absolute;'
+                f'<div title="{_tt_safe}" onclick="selectClaim(\'{c["id"]}\')" '
+                f'style="position:absolute;cursor:pointer;'
                 f'left:{start_pct:.3f}%;width:{width_pct:.3f}%;'
                 f'top:2px;height:{LANE_H-4}px;'
                 f'background:{color};{bg_extra}'
@@ -1067,6 +1076,12 @@ def _build_thread_timeline(
 
     html += '</div></div>'  # close axis row
     html += '</div>'        # close outer
+    html += (
+        '<script>'
+        'function selectClaim(id){'
+        'window.parent.postMessage({type:"tl_claim_select",claim_id:id},"*");}'
+        '</script>'
+    )
 
     return html
 
@@ -2770,23 +2785,27 @@ def main() -> None:
                         if _motion_tl:
                             st.caption(L("motion_caption").format(motion=_motion_tl))
 
-                        # ── Claim selector ─────────────────────────────────────
-                        _tl_opts = {
-                            "": L("timeline_all"),
-                        }
-                        for _c in sorted(_tl_claims, key=lambda c: c.get("start_ms", 0)):
-                            if not _c.get("thread_id"):
-                                continue
-                            _spk  = speaker_names_an.get(_c["speaker"], _c["speaker"])
-                            _prev = (_c["text"][:65] + "…") if len(_c["text"]) > 65 else _c["text"]
-                            _tl_opts[_c["id"]] = f"[{ms_to_ts(_c.get('start_ms',0))}] {_spk} — {_prev}"
-
-                        _sel_cid = st.selectbox(
-                            L("timeline_select"),
-                            options=list(_tl_opts.keys()),
-                            format_func=lambda k: _tl_opts.get(k, k),
-                            key="timeline_claim_select",
+                        # ── Click listener (st_javascript → session_state) ─────
+                        _js_click = st_javascript(
+                            """new Promise(resolve => {
+                                function handler(e) {
+                                    if (e.data && e.data.type === 'tl_claim_select') {
+                                        window.parent.removeEventListener('message', handler);
+                                        resolve(e.data.claim_id);
+                                    }
+                                }
+                                window.parent.addEventListener('message', handler);
+                            })""",
+                            key="tl_click_listener",
                         )
+                        if _js_click and isinstance(_js_click, str) and _js_click.strip():
+                            st.session_state["tl_selected_claim"] = _js_click.strip()
+
+                        _sel_cid = st.session_state.get("tl_selected_claim", "")
+                        # Clear stale selection if claim no longer exists
+                        if _sel_cid and not any(c["id"] == _sel_cid for c in _tl_claims):
+                            st.session_state.pop("tl_selected_claim", None)
+                            _sel_cid = ""
 
                         # ── Thread scorecards ──────────────────────────────────
                         _sc_surv_ss = st.session_state.get("survivability", {})
@@ -2805,8 +2824,8 @@ def main() -> None:
                                 if _tsc_depth == 0:
                                     continue
 
-                                # Speaker balance
-                                _tsc_per_spk: dict[str, int] = {}
+                                # Speaker breakdown
+                                _tsc_per_spk = {}
                                 for _c in _tsc_claims:
                                     _tsc_per_spk[_c["speaker"]] = (
                                         _tsc_per_spk.get(_c["speaker"], 0) + 1
@@ -2815,6 +2834,9 @@ def main() -> None:
                                     f"{speaker_names_an.get(s, s)} {cnt / _tsc_depth:.0%}"
                                     for s, cnt in sorted(_tsc_per_spk.items())
                                 )
+                                # Time range for intro line
+                                _tsc_t0 = min((c.get("start_ms", 0) for c in _tsc_claims), default=0)
+                                _tsc_t1 = max((c.get("end_ms", c.get("start_ms", 0)) for c in _tsc_claims), default=0)
 
                                 # Survival ratio (grounded / total)
                                 _tsc_surv = None
@@ -2848,14 +2870,24 @@ def main() -> None:
                                     )
 
                                 with st.expander(_tsc_topic, expanded=False):
+                                    # Intro line: full topic + speakers + time range
+                                    _tsc_spk_names = ", ".join(
+                                        speaker_names_an.get(s, s)
+                                        for s in sorted(_tsc_per_spk.keys())
+                                    )
+                                    st.caption(
+                                        f"{_tsc_spk_names} · "
+                                        f"{ms_to_ts(_tsc_t0)} – {ms_to_ts(_tsc_t1)}"
+                                    )
+                                    # Metrics row
                                     _tsc_n_cols = 2 + sum([
                                         _tsc_surv   is not None,
                                         _tsc_vrate  is not None,
                                         _tsc_rcount is not None,
                                     ])
                                     _tsc_cols = st.columns(_tsc_n_cols)
-                                    _tsc_cols[0].metric(L("thread_depth"),   _tsc_depth)
-                                    _tsc_cols[1].metric(L("thread_balance"), _tsc_balance)
+                                    _tsc_cols[0].metric(L("thread_depth"),    _tsc_depth)
+                                    _tsc_cols[1].metric(L("thread_speakers"), len(_tsc_per_spk))
                                     _tsc_ci = 2
                                     if _tsc_surv is not None:
                                         _tsc_cols[_tsc_ci].metric(
@@ -2871,10 +2903,14 @@ def main() -> None:
                                         _tsc_cols[_tsc_ci].metric(
                                             L("thread_responses"), _tsc_rcount
                                         )
+                                    # Full speaker breakdown below metrics
+                                    st.markdown(
+                                        f"<small style='color:#888'>{L('thread_balance')}: "
+                                        f"{_tsc_balance}</small>",
+                                        unsafe_allow_html=True,
+                                    )
 
-                        st.caption(L("timeline_hint"))
-
-                        # ── Speaker legend ─────────────────────────────────────
+                        # ── Speaker legend + hint ──────────────────────────────
                         _tl_speakers = sorted({c["speaker"] for c in _tl_claims if c.get("thread_id")})
                         _tl_spk_colors = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
                         _tl_legend = " &nbsp; ".join(
@@ -2883,10 +2919,18 @@ def main() -> None:
                             f'{speaker_names_an.get(s, s)}'
                             for i, s in enumerate(_tl_speakers)
                         )
-                        st.markdown(
-                            f"<small>{L('timeline_legend')} {_tl_legend}</small>",
-                            unsafe_allow_html=True,
-                        )
+                        _tl_leg_col, _tl_clear_col = st.columns([4, 1])
+                        with _tl_leg_col:
+                            st.markdown(
+                                f"<small>{L('timeline_legend')} {_tl_legend}"
+                                f"<br>{L('timeline_hint')}"
+                                f"<br><span style='color:#aaa'>{L('timeline_restat_legend')}</span></small>",
+                                unsafe_allow_html=True,
+                            )
+                        with _tl_clear_col:
+                            if _sel_cid and st.button(L("timeline_clear_sel"), key="tl_clear"):
+                                st.session_state.pop("tl_selected_claim", None)
+                                st.rerun()
 
                         # ── Timeline visualization ─────────────────────────────
                         _tl_fc     = st.session_state.get("filtered_claims")
@@ -2904,7 +2948,8 @@ def main() -> None:
                             highlighted_ids=_tl_hi,
                         )
                         if _tl_html:
-                            st.markdown(_tl_html, unsafe_allow_html=True)
+                            _tl_h = len(_tl_threads) * 33 + 82
+                            components.html(_tl_html, height=_tl_h, scrolling=False)
 
                         # ── Selected claim detail ──────────────────────────────
                         if _sel_cid:

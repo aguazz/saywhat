@@ -1,4 +1,5 @@
 streamlit
+streamlit-javascript
 anthropic
 assemblyai
 yt-dlp>=2024.11.4
