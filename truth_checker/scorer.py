@@ -2,7 +2,7 @@ def compute_speaker_scores(
     claims: list[dict],
     responses: list[dict],
     rhetoric: list[dict],
-    threads: list[dict] | None = None,
+    threads=None,
 ) -> dict:
     """
     Aggregate per-speaker metrics from claims (with optional `verdict` field merged in),
@@ -133,7 +133,7 @@ def compute_debate_scores(
 
     response_density = round(n_responses / n_claims, 3)
 
-    evasion_rate: float | None = None
+    evasion_rate = None
     if n_responses > 0:
         n_evasions   = sum(1 for r in responses if r.get("relationship") in ("evades", "ignores"))
         evasion_rate = round(n_evasions / n_responses, 3)
@@ -143,7 +143,7 @@ def compute_debate_scores(
         present = {s.get("dialectical_stage") for s in stages} - {None, ""}
         dialectical_completeness = round(len(present) / 4, 3)
 
-    thread_coverage: float | None = None
+    thread_coverage = None
     if len(threads) >= 2:
         covered = 0
         for thread in threads:

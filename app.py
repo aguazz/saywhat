@@ -2817,7 +2817,7 @@ def main() -> None:
                                 )
 
                                 # Survival ratio (grounded / total)
-                                _tsc_surv: float | None = None
+                                _tsc_surv = None
                                 if _sc_surv_ss:
                                     _tsc_grnd = sum(
                                         1 for c in _tsc_claims
@@ -2826,7 +2826,7 @@ def main() -> None:
                                     _tsc_surv = _tsc_grnd / _tsc_depth
 
                                 # Verdict ratio (conclusive verdicts / checkable)
-                                _tsc_vrate: float | None = None
+                                _tsc_vrate = None
                                 if _sc_verd_ss:
                                     _tsc_ck = [c for c in _tsc_claims if c.get("checkable")]
                                     if _tsc_ck:
@@ -2838,7 +2838,7 @@ def main() -> None:
                                         _tsc_vrate = _tsc_conc / len(_tsc_ck)
 
                                 # Response edges within this thread
-                                _tsc_rcount: int | None = None
+                                _tsc_rcount = None
                                 if _sc_resp_ss:
                                     _tsc_cids = {c["id"] for c in _tsc_claims}
                                     _tsc_rcount = sum(
