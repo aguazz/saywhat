@@ -34,6 +34,7 @@ from truth_checker.scorer      import compute_speaker_scores
 from truth_checker.visualizer  import build_graph_html
 from truth_checker.dung        import compute_grounded_extension
 from truth_checker.deduplicator import mark_restatements
+from truth_checker              import help_dialogs
 from truth_checker.stage_labeler import label_dialectical_stages
 
 load_dotenv()  # loads .env for local dev; no-op on Streamlit Community Cloud
@@ -131,6 +132,62 @@ LABELS = {
             "- Detecta falacias lógicas y recursos retóricos por hablante\n"
             "- Puntúa a cada hablante en precisión factual y nivel de participación"
         ),
+    },
+    "analysis_empty_intro": {
+        "English": "Analysis reads the transcript and extracts each speaker's claims. It then:",
+        "Español": "El análisis lee la transcripción y extrae las afirmaciones de cada hablante. Luego:",
+    },
+    "analysis_bullet_claims": {
+        "English": "Classifies each claim by type (factual, statistical, causal, moral…)",
+        "Español": "Clasifica cada afirmación por tipo (factual, estadística, causal, moral…)",
+    },
+    "analysis_bullet_threads": {
+        "English": "Groups claims into topic threads",
+        "Español": "Agrupa las afirmaciones en hilos temáticos",
+    },
+    "analysis_bullet_responses": {
+        "English": "Maps how speakers respond to each other's claims (who challenges what)",
+        "Español": "Traza cómo responden los hablantes a las afirmaciones de los demás",
+    },
+    "analysis_bullet_factcheck": {
+        "English": "Fact-checks verifiable claims against external sources",
+        "Español": "Verifica las afirmaciones comprobables contra fuentes externas",
+    },
+    "analysis_bullet_rhetoric": {
+        "English": "Detects logical fallacies and rhetorical devices per speaker",
+        "Español": "Detecta falacias lógicas y recursos retóricos por hablante",
+    },
+    "analysis_bullet_scoring": {
+        "English": "Scores each speaker on factual accuracy and engagement",
+        "Español": "Puntúa a cada hablante en precisión factual y nivel de participación",
+    },
+    "help_link_claims": {
+        "English": "what are claims?",
+        "Español": "¿qué son las afirmaciones?",
+    },
+    "help_link_threads": {
+        "English": "what are threads?",
+        "Español": "¿qué son los hilos?",
+    },
+    "help_link_responses": {
+        "English": "how claims respond to each other",
+        "Español": "cómo responden las afirmaciones entre sí",
+    },
+    "help_link_factcheck": {
+        "English": "how fact-checking works",
+        "Español": "cómo funciona la verificación",
+    },
+    "help_link_rhetoric": {
+        "English": "fallacies and rhetorical devices",
+        "Español": "falacias y recursos retóricos",
+    },
+    "help_link_scoring": {
+        "English": "how speakers are scored",
+        "Español": "cómo se puntúa a los hablantes",
+    },
+    "help_sidebar_heading": {
+        "English": "Help",
+        "Español": "Ayuda",
     },
     "no_anthropic_an":   {"English": "Add ANTHROPIC_API_KEY to your .env to enable analysis.",
                           "Español": "Añade ANTHROPIC_API_KEY a tu .env para habilitar el análisis."},
@@ -866,6 +923,26 @@ def main() -> None:
             ["English", "Español"],
             index=["English", "Español"].index(st.session_state["lang"]),
         )
+        st.divider()
+        _slang = st.session_state["lang"]
+        with st.expander(
+            f"📖 {LABELS['help_sidebar_heading'][_slang]}", expanded=False
+        ):
+            _SIDEBAR_HELP = [
+                ("help_link_claims",    help_dialogs.claims_dialog),
+                ("help_link_threads",   help_dialogs.threads_dialog),
+                ("help_link_responses", help_dialogs.responses_dialog),
+                ("help_link_factcheck", help_dialogs.factcheck_dialog),
+                ("help_link_rhetoric",  help_dialogs.rhetoric_dialog),
+                ("help_link_scoring",   help_dialogs.scoring_dialog),
+            ]
+            for _lkey, _dlg in _SIDEBAR_HELP:
+                if st.button(
+                    f"→ {LABELS[_lkey][_slang]}",
+                    key=f"help_{_lkey}_sidebar",
+                    use_container_width=True,
+                ):
+                    _dlg(_slang)
 
     lang = st.session_state["lang"]
     L = lambda key: LABELS[key][lang]  # noqa: E731
@@ -1247,12 +1324,28 @@ def main() -> None:
                 st.warning(L("no_anthropic_an"))
 
             if not st.session_state.get("analysis"):
-                st.info(
-                    f"**{L('analysis_empty_heading')}**\n\n{L('analysis_empty_body')}"
-                )
-            else:
-                with st.expander(L("analysis_empty_heading"), expanded=False):
-                    st.markdown(L("analysis_empty_body"))
+                with st.container(border=True):
+                    st.markdown(f"**{L('analysis_empty_heading')}**")
+                    st.caption(L("analysis_empty_intro"))
+                    _HELP_ROWS = [
+                        ("analysis_bullet_claims",    "help_link_claims",    help_dialogs.claims_dialog),
+                        ("analysis_bullet_threads",   "help_link_threads",   help_dialogs.threads_dialog),
+                        ("analysis_bullet_responses", "help_link_responses", help_dialogs.responses_dialog),
+                        ("analysis_bullet_factcheck", "help_link_factcheck", help_dialogs.factcheck_dialog),
+                        ("analysis_bullet_rhetoric",  "help_link_rhetoric",  help_dialogs.rhetoric_dialog),
+                        ("analysis_bullet_scoring",   "help_link_scoring",   help_dialogs.scoring_dialog),
+                    ]
+                    for _bkey, _lkey, _dlg in _HELP_ROWS:
+                        _col_txt, _col_btn = st.columns([7, 3])
+                        with _col_txt:
+                            st.markdown(f"— {L(_bkey)}")
+                        with _col_btn:
+                            if st.button(
+                                f"→ {L(_lkey)}",
+                                key=f"help_{_lkey}_empty",
+                                use_container_width=True,
+                            ):
+                                _dlg(lang)
 
             col_btn, col_note = st.columns([1, 3])
             with col_btn:
@@ -1529,6 +1622,11 @@ def main() -> None:
                             key       = "dl_responses_btn",
                         )
 
+                _dr_help_col, _ = st.columns([3, 7])
+                with _dr_help_col:
+                    if st.button(f"→ {L('help_link_responses')}", key="help_responses_dr"):
+                        help_dialogs.responses_dialog(lang)
+
                 if dr_clicked and anthropic_key:
                     _dr_claims = sorted(
                         analysis.get("claims", []),
@@ -1703,6 +1801,14 @@ def main() -> None:
                             sel_spk  = st.selectbox(L("filter_speaker"), spk_opts)
                         with col_f2:
                             sel_type = st.selectbox(L("filter_type"), type_opts)
+
+                        _hc1, _hc2, _ = st.columns([2, 2, 6])
+                        with _hc1:
+                            if st.button(f"→ {L('help_link_claims')}", key="help_claims_table"):
+                                help_dialogs.claims_dialog(lang)
+                        with _hc2:
+                            if st.button(f"→ {L('help_link_threads')}", key="help_threads_table"):
+                                help_dialogs.threads_dialog(lang)
 
                         filtered = claims
                         if sel_spk != all_lbl:
@@ -2363,6 +2469,10 @@ def main() -> None:
                             st.info(L("analysis_no_claims"))
 
                         # ── Legend ─────────────────────────────────────────────
+                        _map_help_col, _ = st.columns([3, 7])
+                        with _map_help_col:
+                            if st.button(f"→ {L('help_link_responses')}", key="help_responses_map"):
+                                help_dialogs.responses_dialog(lang)
                         st.markdown(f"#### {L('legend_heading')}")
                         _SPEAKER_COLORS_VIS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
                         spk_sorted = sorted({c["speaker"] for c in analysis.get("claims", [])})
@@ -2443,6 +2553,10 @@ def main() -> None:
                         st.info(L("rhetoric_run_first"))
                     else:
                         st.info(L("rhetoric_intro"))
+                        _rh_help_col, _ = st.columns([3, 7])
+                        with _rh_help_col:
+                            if st.button(f"→ {L('help_link_rhetoric')}", key="help_rhetoric_tab"):
+                                help_dialogs.rhetoric_dialog(lang)
                         # ── Stage timeline ─────────────────────────────────────
                         if _stages:
                             st.subheader(L("stage_timeline"))
@@ -2677,6 +2791,14 @@ def main() -> None:
                             sup_str = LABELS["metric_supported"][lang].format(
                                 n=supported, total=checkable
                             )
+
+                            _sr_help_col, _ = st.columns([3, 7])
+                            with _sr_help_col:
+                                if st.button(
+                                    f"→ {L('help_link_scoring')}",
+                                    key=f"help_scoring_{sid}",
+                                ):
+                                    help_dialogs.scoring_dialog(lang)
 
                             mc1, mc2, mc3, mc4 = st.columns(4)
                             mc1.metric(L("metric_reliability"),  rs_str,                             help=L("help_reliability"))

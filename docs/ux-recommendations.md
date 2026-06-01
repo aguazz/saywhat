@@ -8,7 +8,20 @@ For the conceptual background behind each recommendation, see [how-it-works.md](
 
 ## Implemented
 
-All eight essential items below are live in `app.py` (and `truth_checker/visualizer.py` for item 5).
+### Help Tour (Prompts A–D) ✓
+
+Six interactive `st.dialog` modals explaining the analysis system, accessible from two surfaces:
+
+- **Inline `→` links** in the analysis tab empty state (all 6), below the claims table filters (`→ what are claims?` · `→ what are threads?`), beside the Detect Responses button, in the Argument Map legend area, in the Rhetorical Profile tab, and above each speaker's metrics in the Speaker Report.
+- **Sidebar Help panel** — a permanent `📖 Help` expander in the sidebar listing all 6 topics, reachable from anywhere in the app.
+
+All dialogs live in `truth_checker/help_dialogs.py`. Each is bilingual, short, and contains a compact table plus one concrete example. The analysis tab empty state was refactored from `st.info(markdown_string)` to a `st.container(border=True)` layout with per-row `→` buttons.
+
+---
+
+### Original 8 essential items
+
+All eight items below are live in `app.py` (and `truth_checker/visualizer.py` for item 5).
 
 ---
 
