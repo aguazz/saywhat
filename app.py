@@ -1323,29 +1323,28 @@ def main() -> None:
             if not anthropic_key:
                 st.warning(L("no_anthropic_an"))
 
-            if not st.session_state.get("analysis"):
-                with st.container(border=True):
-                    st.markdown(f"**{L('analysis_empty_heading')}**")
-                    st.caption(L("analysis_empty_intro"))
-                    _HELP_ROWS = [
-                        ("analysis_bullet_claims",    "help_link_claims",    help_dialogs.claims_dialog),
-                        ("analysis_bullet_threads",   "help_link_threads",   help_dialogs.threads_dialog),
-                        ("analysis_bullet_responses", "help_link_responses", help_dialogs.responses_dialog),
-                        ("analysis_bullet_factcheck", "help_link_factcheck", help_dialogs.factcheck_dialog),
-                        ("analysis_bullet_rhetoric",  "help_link_rhetoric",  help_dialogs.rhetoric_dialog),
-                        ("analysis_bullet_scoring",   "help_link_scoring",   help_dialogs.scoring_dialog),
-                    ]
-                    for _bkey, _lkey, _dlg in _HELP_ROWS:
-                        _col_txt, _col_btn = st.columns([7, 3])
-                        with _col_txt:
-                            st.markdown(f"— {L(_bkey)}")
-                        with _col_btn:
-                            if st.button(
-                                f"→ {L(_lkey)}",
-                                key=f"help_{_lkey}_empty",
-                                use_container_width=True,
-                            ):
-                                _dlg(lang)
+            _has_analysis = bool(st.session_state.get("analysis"))
+            with st.expander(L("analysis_empty_heading"), expanded=not _has_analysis):
+                st.caption(L("analysis_empty_intro"))
+                _HELP_ROWS = [
+                    ("analysis_bullet_claims",    "help_link_claims",    help_dialogs.claims_dialog),
+                    ("analysis_bullet_threads",   "help_link_threads",   help_dialogs.threads_dialog),
+                    ("analysis_bullet_responses", "help_link_responses", help_dialogs.responses_dialog),
+                    ("analysis_bullet_factcheck", "help_link_factcheck", help_dialogs.factcheck_dialog),
+                    ("analysis_bullet_rhetoric",  "help_link_rhetoric",  help_dialogs.rhetoric_dialog),
+                    ("analysis_bullet_scoring",   "help_link_scoring",   help_dialogs.scoring_dialog),
+                ]
+                for _bkey, _lkey, _dlg in _HELP_ROWS:
+                    _col_txt, _col_btn = st.columns([7, 3])
+                    with _col_txt:
+                        st.markdown(f"- {L(_bkey)}")
+                    with _col_btn:
+                        if st.button(
+                            f"→ {L(_lkey)}",
+                            key=f"help_{_lkey}_empty",
+                            use_container_width=True,
+                        ):
+                            _dlg(lang)
 
             col_btn, col_note = st.columns([1, 3])
             with col_btn:
@@ -1415,6 +1414,67 @@ def main() -> None:
             # ── Run Fact-Check button ──────────────────────────────────────────
             analysis = st.session_state.get("analysis")
             if analysis:
+                # ── Load saved results ────────────────────────────────────────
+                with st.expander(L("load_results_expander")):
+                    _lv_col, _lr_col, _lrh_col, _lsr_col = st.columns(4)
+                    with _lv_col:
+                        _vf = st.file_uploader(L("upload_verdicts_label"), type=["json"], key="ul_verdicts")
+                        if _vf and st.button(L("load_verdicts_btn"), key="btn_ul_verdicts"):
+                            try:
+                                _d = json.loads(_vf.read())
+                                if not isinstance(_d.get("verdicts"), dict):
+                                    st.error(L("err_not_verdicts_json"))
+                                else:
+                                    st.session_state["verdicts"] = _d["verdicts"]
+                                    st.success(L("verdicts_loaded"))
+                                    st.rerun()
+                            except Exception:
+                                st.error(L("err_invalid_json"))
+                    with _lr_col:
+                        _rf = st.file_uploader(L("upload_responses_label"), type=["json"], key="ul_responses")
+                        if _rf and st.button(L("load_responses_btn"), key="btn_ul_responses"):
+                            try:
+                                _d = json.loads(_rf.read())
+                                if not isinstance(_d.get("responses"), list):
+                                    st.error(L("err_not_responses_json"))
+                                else:
+                                    st.session_state["responses"] = _d["responses"]
+                                    st.session_state["survivability"] = compute_grounded_extension(
+                                        analysis.get("claims", []), _d["responses"],
+                                    )
+                                    st.success(L("responses_loaded"))
+                                    st.rerun()
+                            except Exception:
+                                st.error(L("err_invalid_json"))
+                    with _lrh_col:
+                        _rhf = st.file_uploader(L("upload_rhetoric_label"), type=["json"], key="ul_rhetoric")
+                        if _rhf and st.button(L("load_rhetoric_btn"), key="btn_ul_rhetoric"):
+                            try:
+                                _d = json.loads(_rhf.read())
+                                if not isinstance(_d.get("rhetoric"), list):
+                                    st.error(L("err_not_rhetoric_json"))
+                                else:
+                                    st.session_state["rhetoric"] = _d["rhetoric"]
+                                    if isinstance(_d.get("stages"), list):
+                                        st.session_state["stages"] = _d["stages"]
+                                    st.success(L("rhetoric_loaded"))
+                                    st.rerun()
+                            except Exception:
+                                st.error(L("err_invalid_json"))
+                    with _lsr_col:
+                        _srf = st.file_uploader(L("upload_speaker_report_label"), type=["json"], key="ul_speaker_report")
+                        if _srf and st.button(L("load_speaker_report_btn"), key="btn_ul_speaker_report"):
+                            try:
+                                _d = json.loads(_srf.read())
+                                if not isinstance(_d.get("speaker_report"), dict):
+                                    st.error(L("err_not_speaker_report_json"))
+                                else:
+                                    st.session_state["speaker_report"] = _d["speaker_report"]
+                                    st.success(L("speaker_report_loaded"))
+                                    st.rerun()
+                            except Exception:
+                                st.error(L("err_invalid_json"))
+
                 col_fc, col_fc_note, col_fc_dl = st.columns([2, 3, 2])
                 with col_fc:
                     fc_clicked = st.button(L("run_factcheck"), disabled=not anthropic_key)
@@ -1541,67 +1601,6 @@ def main() -> None:
                     f"({_n_turns} turns · "
                     f"{'Haiku' if 'haiku' in _rhet_model else 'Sonnet'})"
                 )
-
-                # ── Load saved results ────────────────────────────────────────
-                with st.expander(L("load_results_expander")):
-                    _lv_col, _lr_col, _lrh_col, _lsr_col = st.columns(4)
-                    with _lv_col:
-                        _vf = st.file_uploader(L("upload_verdicts_label"), type=["json"], key="ul_verdicts")
-                        if _vf and st.button(L("load_verdicts_btn"), key="btn_ul_verdicts"):
-                            try:
-                                _d = json.loads(_vf.read())
-                                if not isinstance(_d.get("verdicts"), dict):
-                                    st.error(L("err_not_verdicts_json"))
-                                else:
-                                    st.session_state["verdicts"] = _d["verdicts"]
-                                    st.success(L("verdicts_loaded"))
-                                    st.rerun()
-                            except Exception:
-                                st.error(L("err_invalid_json"))
-                    with _lr_col:
-                        _rf = st.file_uploader(L("upload_responses_label"), type=["json"], key="ul_responses")
-                        if _rf and st.button(L("load_responses_btn"), key="btn_ul_responses"):
-                            try:
-                                _d = json.loads(_rf.read())
-                                if not isinstance(_d.get("responses"), list):
-                                    st.error(L("err_not_responses_json"))
-                                else:
-                                    st.session_state["responses"] = _d["responses"]
-                                    st.session_state["survivability"] = compute_grounded_extension(
-                                        analysis.get("claims", []), _d["responses"],
-                                    )
-                                    st.success(L("responses_loaded"))
-                                    st.rerun()
-                            except Exception:
-                                st.error(L("err_invalid_json"))
-                    with _lrh_col:
-                        _rhf = st.file_uploader(L("upload_rhetoric_label"), type=["json"], key="ul_rhetoric")
-                        if _rhf and st.button(L("load_rhetoric_btn"), key="btn_ul_rhetoric"):
-                            try:
-                                _d = json.loads(_rhf.read())
-                                if not isinstance(_d.get("rhetoric"), list):
-                                    st.error(L("err_not_rhetoric_json"))
-                                else:
-                                    st.session_state["rhetoric"] = _d["rhetoric"]
-                                    if isinstance(_d.get("stages"), list):
-                                        st.session_state["stages"] = _d["stages"]
-                                    st.success(L("rhetoric_loaded"))
-                                    st.rerun()
-                            except Exception:
-                                st.error(L("err_invalid_json"))
-                    with _lsr_col:
-                        _srf = st.file_uploader(L("upload_speaker_report_label"), type=["json"], key="ul_speaker_report")
-                        if _srf and st.button(L("load_speaker_report_btn"), key="btn_ul_speaker_report"):
-                            try:
-                                _d = json.loads(_srf.read())
-                                if not isinstance(_d.get("speaker_report"), dict):
-                                    st.error(L("err_not_speaker_report_json"))
-                                else:
-                                    st.session_state["speaker_report"] = _d["speaker_report"]
-                                    st.success(L("speaker_report_loaded"))
-                                    st.rerun()
-                            except Exception:
-                                st.error(L("err_invalid_json"))
 
                 # ── Detect Responses button ────────────────────────────────────
                 col_dr, col_dr_note, col_dr_dl = st.columns([1, 2, 2])
