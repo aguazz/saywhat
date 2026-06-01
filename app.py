@@ -1925,9 +1925,17 @@ def main() -> None:
                         st.info(L("analysis_no_claims"))
                     else:
                         n_spk = len({c["speaker"] for c in claims})
-                        st.markdown(LABELS["analysis_summary"][lang].format(
-                            n=len(claims), t=len(threads), s=n_spk,
-                        ))
+                        _sum_col, _hc1, _hc2 = st.columns([6, 2, 2])
+                        with _sum_col:
+                            st.markdown(LABELS["analysis_summary"][lang].format(
+                                n=len(claims), t=len(threads), s=n_spk,
+                            ))
+                        with _hc1:
+                            if st.button(f"→ {L('help_link_claims')}", key="help_claims_table"):
+                                help_dialogs.claims_dialog(lang)
+                        with _hc2:
+                            if st.button(f"→ {L('help_link_threads')}", key="help_threads_table"):
+                                help_dialogs.threads_dialog(lang)
 
                         # ── Filter panel ──────────────────────────────────────
                         _cf = st.session_state["claim_filter"]
@@ -1983,15 +1991,6 @@ def main() -> None:
                                 value=_cf.get("text_query", ""),
                             )
                             _cf["text_query"] = _sel_text
-
-                        # Help links (preserved from original filter area)
-                        _hc1, _hc2, _ = st.columns([2, 2, 6])
-                        with _hc1:
-                            if st.button(f"→ {L('help_link_claims')}", key="help_claims_table"):
-                                help_dialogs.claims_dialog(lang)
-                        with _hc2:
-                            if st.button(f"→ {L('help_link_threads')}", key="help_threads_table"):
-                                help_dialogs.threads_dialog(lang)
 
                         # Default for _cn_disp (used in chip display even when no responses)
                         _cn_disp = {
