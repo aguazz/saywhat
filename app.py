@@ -1453,13 +1453,54 @@ def main() -> None:
                         ):
                             _dlg(lang)
 
-            col_btn, col_note = st.columns([1, 3])
+            col_btn, col_note, col_dl_pdf, col_dl_json = st.columns([1, 2, 1, 1])
             with col_btn:
                 run_clicked = st.button(
                     L("run_analysis"), type="primary", disabled=not anthropic_key,
                 )
             with col_note:
                 st.caption(L("analysis_cost"))
+            _an_ss = st.session_state.get("analysis")
+            if _an_ss:
+                _an_title_dl = t.get("_title", "Debate") if t else "Debate"
+                _verdicts_dl = st.session_state.get("verdicts", {})
+                _sr_dl       = st.session_state.get("speaker_report", {})
+                with col_dl_pdf:
+                    try:
+                        _pdf_dl = build_analysis_pdf(
+                            claims        = _an_ss.get("claims", []),
+                            threads       = _an_ss.get("threads", []),
+                            speaker_names = speaker_names_an,
+                            speaker_report= _sr_dl,
+                            verdicts      = _verdicts_dl,
+                            title         = _an_title_dl,
+                        )
+                    except Exception:
+                        _pdf_dl = b""
+                    st.download_button(
+                        label     = L("btn_dl_analysis_pdf"),
+                        data      = _pdf_dl,
+                        file_name = f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        mime      = "application/pdf",
+                        disabled  = not _pdf_dl,
+                        use_container_width=True,
+                    )
+                with col_dl_json:
+                    _json_dl = json.dumps(
+                        {
+                            "analysis":       _an_ss,
+                            "verdicts":       _verdicts_dl,
+                            "speaker_report": _sr_dl,
+                        },
+                        indent=2, ensure_ascii=False,
+                    )
+                    st.download_button(
+                        label     = L("btn_dl_analysis_json"),
+                        data      = _json_dl.encode("utf-8"),
+                        file_name = f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime      = "application/json",
+                        use_container_width=True,
+                    )
 
             if run_clicked and anthropic_key:
                 transcript_id = st.session_state.get("_current_id", "unknown")
@@ -2448,46 +2489,6 @@ def main() -> None:
                                 data      = buf.getvalue().encode("utf-8"),
                                 file_name = f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                                 mime      = "text/csv",
-                            )
-
-                        # ── Analysis export buttons ────────────────────────────
-                        dl_col1, dl_col2 = st.columns(2)
-                        with dl_col1:
-                            _an_title = t.get("_title", "Debate") if t else "Debate"
-                            try:
-                                _pdf_bytes = build_analysis_pdf(
-                                    claims        = analysis.get("claims", []),
-                                    threads       = analysis.get("threads", []),
-                                    speaker_names = speaker_names_an,
-                                    speaker_report= st.session_state.get("speaker_report", {}),
-                                    verdicts      = st.session_state.get("verdicts", {}),
-                                    title         = _an_title,
-                                )
-                            except Exception as _pdf_err:
-                                _pdf_bytes = b""
-                                st.caption(f"PDF unavailable: {_pdf_err}")
-                            st.download_button(
-                                label     = L("btn_dl_analysis_pdf"),
-                                data      = _pdf_bytes,
-                                file_name = f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                                mime      = "application/pdf",
-                                disabled  = not _pdf_bytes,
-                            )
-                        with dl_col2:
-                            _export_json = json.dumps(
-                                {
-                                    "analysis":       analysis,
-                                    "verdicts":       st.session_state.get("verdicts", {}),
-                                    "speaker_report": st.session_state.get("speaker_report", {}),
-                                },
-                                indent=2,
-                                ensure_ascii=False,
-                            )
-                            st.download_button(
-                                label     = L("btn_dl_analysis_json"),
-                                data      = _export_json.encode("utf-8"),
-                                file_name = f"analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                                mime      = "application/json",
                             )
 
                         # ── Verdict expanders ──────────────────────────────────
