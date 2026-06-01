@@ -465,6 +465,22 @@ LABELS = {
         "English": "Rhetorical devices are not always flaws. Labels show technique, not quality.",
         "Español": "Los recursos retóricos no son siempre defectos. Las etiquetas indican técnica, no calidad.",
     },
+    "rh_breakdown_expander": {
+        "English": "Breakdown by type",
+        "Español": "Desglose por tipo",
+    },
+    "rh_fallacy_types_heading": {
+        "English": "Fallacy types",
+        "Español": "Tipos de falacias",
+    },
+    "rh_device_types_heading": {
+        "English": "Rhetorical device types",
+        "Español": "Tipos de recursos retóricos",
+    },
+    "rh_other": {
+        "English": "Other",
+        "Español": "Otros",
+    },
     "rhetoric_intro": {
         "English": (
             "**Fallacies** are reasoning errors — arguments that look persuasive but "
@@ -2838,6 +2854,113 @@ def main() -> None:
                                 unsafe_allow_html=True,
                             )
                             st.divider()
+
+                            # ── Type breakdown expander ────────────────────────
+                            with st.expander(L("rh_breakdown_expander"), expanded=False):
+                                # Build type × speaker count tables
+                                _rh_f_types: dict[str, dict[str, int]] = {}
+                                _rh_d_types: dict[str, dict[str, int]] = {}
+                                for _rsid, _rturns in spk_rhetoric.items():
+                                    for _rt in _rturns:
+                                        for _rf in _rt.get("fallacies", []):
+                                            _rlbl = _rf.get("label") or _rf.get("type", "")
+                                            if _rlbl:
+                                                _rh_f_types.setdefault(_rlbl, {})
+                                                _rh_f_types[_rlbl][_rsid] = (
+                                                    _rh_f_types[_rlbl].get(_rsid, 0) + 1
+                                                )
+                                        for _rd in _rt.get("rhetorical_devices", []):
+                                            if _rd.get("is_fallacy", False):
+                                                continue
+                                            _rlbl = _rd.get("label") or _rd.get("type", "")
+                                            if _rlbl:
+                                                _rh_d_types.setdefault(_rlbl, {})
+                                                _rh_d_types[_rlbl][_rsid] = (
+                                                    _rh_d_types[_rlbl].get(_rsid, 0) + 1
+                                                )
+
+                                def _rh_type_chart(
+                                    type_counts: dict[str, dict[str, int]],
+                                    spk_ids: list[str],
+                                    heading: str,
+                                ) -> None:
+                                    if not type_counts:
+                                        return
+                                    # Group singletons into "Other"
+                                    _other: dict[str, int] = {}
+                                    _keep: dict[str, dict[str, int]] = {}
+                                    for _tl, _sc in type_counts.items():
+                                        if sum(_sc.values()) <= 1:
+                                            for _sid2, _cnt2 in _sc.items():
+                                                _other[_sid2] = _other.get(_sid2, 0) + _cnt2
+                                        else:
+                                            _keep[_tl] = _sc
+                                    if _other:
+                                        _keep[L("rh_other")] = _other
+                                    # Sort by total count desc
+                                    _sorted_types = sorted(
+                                        _keep.items(),
+                                        key=lambda x: -sum(x[1].values()),
+                                    )
+                                    _max_type = max(
+                                        sum(sc.values()) for _, sc in _sorted_types
+                                    ) or 1
+                                    _spk_cols = [SPEAKER_COLORS[i % len(SPEAKER_COLORS)]
+                                                 for i, _ in enumerate(spk_ids)]
+                                    st.markdown(f"**{heading}**")
+                                    _th_html = (
+                                        '<div style="display:flex;flex-direction:column;'
+                                        'gap:6px;margin:6px 0 14px 0">'
+                                    )
+                                    for _tl, _sc in _sorted_types:
+                                        _total = sum(_sc.values())
+                                        _segs = ""
+                                        for _i2, _sid2 in enumerate(spk_ids):
+                                            _cnt2 = _sc.get(_sid2, 0)
+                                            if _cnt2 > 0:
+                                                _sw = _cnt2 / _max_type * 100
+                                                _sc2 = _spk_cols[_i2]
+                                                _sn2 = speaker_names_an.get(_sid2, _sid2)
+                                                _segs += (
+                                                    f'<div title="{_sn2}: {_cnt2}" '
+                                                    f'style="width:{_sw:.1f}%;background:{_sc2};'
+                                                    f'height:100%"></div>'
+                                                )
+                                        _th_html += (
+                                            f'<div style="display:flex;align-items:center;'
+                                            f'gap:8px;font-size:0.82em">'
+                                            f'<div style="min-width:160px;text-align:right;'
+                                            f'color:#555;font-size:0.9em">{_tl}</div>'
+                                            f'<div style="flex:1;background:rgba(128,128,128,0.1);'
+                                            f'border-radius:3px;height:18px;display:flex;'
+                                            f'overflow:hidden">{_segs}</div>'
+                                            f'<div style="min-width:24px;color:#aaa;'
+                                            f'font-size:0.85em">{_total}</div>'
+                                            f'</div>'
+                                        )
+                                    _th_html += '</div>'
+                                    # Speaker legend
+                                    _leg = " &nbsp;&nbsp; ".join(
+                                        f'<span style="background:{_spk_cols[_i2]};'
+                                        f'border-radius:50%;display:inline-block;width:9px;'
+                                        f'height:9px;vertical-align:middle"></span> '
+                                        f'{speaker_names_an.get(_sid2, _sid2)}'
+                                        for _i2, _sid2 in enumerate(spk_ids)
+                                    )
+                                    _th_html += (
+                                        f'<div style="font-size:0.78em;color:#888;'
+                                        f'margin-bottom:4px">{_leg}</div>'
+                                    )
+                                    st.markdown(_th_html, unsafe_allow_html=True)
+
+                                _rh_type_chart(
+                                    _rh_f_types, _rh_spk_ids,
+                                    L("rh_fallacy_types_heading"),
+                                )
+                                _rh_type_chart(
+                                    _rh_d_types, _rh_spk_ids,
+                                    L("rh_device_types_heading"),
+                                )
 
                             for sid in sorted(spk_rhetoric.keys()):
                                 turns_for_spk = spk_rhetoric[sid]

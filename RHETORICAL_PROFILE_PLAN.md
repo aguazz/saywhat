@@ -7,7 +7,7 @@
 | # | Prompt | Files | Status |
 |---|--------|-------|--------|
 | A | Replace overview chart with grouped vertical bars | `app.py` | ✓ Done |
-| B | Add type-breakdown expander (horizontal stacked by type) | `app.py` | ☐ Pending |
+| B | Add type-breakdown expander (horizontal stacked by type) | `app.py` | ✓ Done |
 | C | Enrich stage timeline chips with rhetoric data | `app.py` | ☐ Pending |
 
 ---
