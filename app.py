@@ -1621,11 +1621,6 @@ def main() -> None:
                             key       = "dl_responses_btn",
                         )
 
-                _dr_help_col, _ = st.columns([3, 7])
-                with _dr_help_col:
-                    if st.button(f"→ {L('help_link_responses')}", key="help_responses_dr"):
-                        help_dialogs.responses_dialog(lang)
-
                 if dr_clicked and anthropic_key:
                     _dr_claims = sorted(
                         analysis.get("claims", []),
