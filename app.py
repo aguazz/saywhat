@@ -1621,6 +1621,11 @@ def main() -> None:
                             key       = "dl_responses_btn",
                         )
 
+                _dr_help_col, _ = st.columns([3, 7])
+                with _dr_help_col:
+                    if st.button(f"→ {L('help_link_responses')}", key="help_responses_dr"):
+                        help_dialogs.responses_dialog(lang)
+
                 if dr_clicked and anthropic_key:
                     _dr_claims = sorted(
                         analysis.get("claims", []),
@@ -1795,6 +1800,14 @@ def main() -> None:
                             sel_spk  = st.selectbox(L("filter_speaker"), spk_opts)
                         with col_f2:
                             sel_type = st.selectbox(L("filter_type"), type_opts)
+
+                        _hc1, _hc2, _ = st.columns([2, 2, 6])
+                        with _hc1:
+                            if st.button(f"→ {L('help_link_claims')}", key="help_claims_table"):
+                                help_dialogs.claims_dialog(lang)
+                        with _hc2:
+                            if st.button(f"→ {L('help_link_threads')}", key="help_threads_table"):
+                                help_dialogs.threads_dialog(lang)
 
                         filtered = claims
                         if sel_spk != all_lbl:
@@ -2455,6 +2468,10 @@ def main() -> None:
                             st.info(L("analysis_no_claims"))
 
                         # ── Legend ─────────────────────────────────────────────
+                        _map_help_col, _ = st.columns([3, 7])
+                        with _map_help_col:
+                            if st.button(f"→ {L('help_link_responses')}", key="help_responses_map"):
+                                help_dialogs.responses_dialog(lang)
                         st.markdown(f"#### {L('legend_heading')}")
                         _SPEAKER_COLORS_VIS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b"]
                         spk_sorted = sorted({c["speaker"] for c in analysis.get("claims", [])})
