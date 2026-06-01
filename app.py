@@ -1796,14 +1796,6 @@ def main() -> None:
                         with col_f2:
                             sel_type = st.selectbox(L("filter_type"), type_opts)
 
-                        _hc1, _hc2, _ = st.columns([2, 2, 6])
-                        with _hc1:
-                            if st.button(f"→ {L('help_link_claims')}", key="help_claims_table"):
-                                help_dialogs.claims_dialog(lang)
-                        with _hc2:
-                            if st.button(f"→ {L('help_link_threads')}", key="help_threads_table"):
-                                help_dialogs.threads_dialog(lang)
-
                         filtered = claims
                         if sel_spk != all_lbl:
                             sid_lookup = {v: k for k, v in speaker_names_an.items()}
