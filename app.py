@@ -2585,7 +2585,7 @@ def main() -> None:
                                 "argumentation": "stage_argumentation",
                                 "concluding":    "stage_concluding",
                             }
-                            # Stacked bar chart — turns per stage, broken down by speaker
+                            # Vertical stacked bar chart — stage color, speaker texture
                             _stage_counts: dict[str, int] = {}
                             _stage_color_map: dict[str, str] = {}
                             _stage_spk_counts: dict[str, dict[str, int]] = {}
@@ -2601,62 +2601,99 @@ def main() -> None:
                                 )
                             if _stage_counts:
                                 _sc_speakers = sorted(speaker_names_an.keys())
-                                _sc_spk_colors = {
-                                    _s: SPEAKER_COLORS[i % len(SPEAKER_COLORS)]
+                                # CSS texture overlays: same stage color, pattern varies by speaker
+                                _SPK_TEXTURES = [
+                                    "",  # solid
+                                    "background-image:repeating-linear-gradient("
+                                    "45deg,rgba(255,255,255,0.45) 0,rgba(255,255,255,0.45) 3px,"
+                                    "transparent 3px,transparent 9px);",
+                                    "background-image:repeating-linear-gradient("
+                                    "0deg,rgba(255,255,255,0.45) 0,rgba(255,255,255,0.45) 3px,"
+                                    "transparent 3px,transparent 9px);",
+                                    "background-image:radial-gradient("
+                                    "circle,rgba(255,255,255,0.6) 2px,transparent 2px);"
+                                    "background-size:9px 9px;",
+                                    "background-image:repeating-linear-gradient("
+                                    "-45deg,rgba(255,255,255,0.45) 0,rgba(255,255,255,0.45) 3px,"
+                                    "transparent 3px,transparent 9px);",
+                                    "background-image:repeating-linear-gradient("
+                                    "90deg,rgba(255,255,255,0.45) 0,rgba(255,255,255,0.45) 3px,"
+                                    "transparent 3px,transparent 9px);",
+                                ]
+                                _spk_tex = {
+                                    _s: _SPK_TEXTURES[i % len(_SPK_TEXTURES)]
                                     for i, _s in enumerate(_sc_speakers)
                                 }
+                                _MAX_BAR_H = 160
                                 _max_sc = max(_stage_counts.values()) or 1
-                                _sc_html = (
-                                    '<div style="display:flex;flex-direction:column;'
-                                    'gap:10px;margin:12px 0 8px 0">'
-                                )
-                                for _lbl, _total in sorted(
+                                _sorted_stages = sorted(
                                     _stage_counts.items(), key=lambda x: -x[1]
-                                ):
-                                    _sc_color = _stage_color_map.get(_lbl, "#cccccc")
-                                    _bar_w = _total / _max_sc * 100
+                                )
+                                # Row 1: count labels above bars
+                                _r1 = '<div style="display:flex;gap:12px;margin:12px 0 2px 0">'
+                                for _lbl, _tot in _sorted_stages:
+                                    _r1 += (
+                                        f'<div style="flex:1;text-align:center;'
+                                        f'font-size:0.8em;color:#888">{_tot}</div>'
+                                    )
+                                _r1 += '</div>'
+                                # Row 2: the bars
+                                _r2 = (
+                                    '<div style="display:flex;align-items:flex-end;gap:12px;'
+                                    f'height:{_MAX_BAR_H}px;'
+                                    'border-bottom:1px solid rgba(128,128,128,0.2)">'
+                                )
+                                for _lbl, _tot in _sorted_stages:
+                                    _col = _stage_color_map.get(_lbl, "#cccccc")
+                                    _bh  = max(4, int(_tot / _max_sc * _MAX_BAR_H))
                                     _spk_data = _stage_spk_counts.get(_lbl, {})
                                     _segs = ""
                                     for _s in _sc_speakers:
-                                        _scnt = _spk_data.get(_s, 0)
-                                        if _scnt > 0:
-                                            _sw = _scnt / _total * _bar_w
-                                            _sc = _sc_spk_colors.get(_s, "#aaaaaa")
-                                            _sn = speaker_names_an.get(_s, _s)
+                                        _sc_cnt = _spk_data.get(_s, 0)
+                                        if _sc_cnt > 0:
+                                            _tex = _spk_tex.get(_s, "")
+                                            _sn  = speaker_names_an.get(_s, _s)
                                             _segs += (
-                                                f'<div title="{_sn}: {_scnt}" '
-                                                f'style="width:{_sw:.2f}%;background:{_sc};'
-                                                f'height:100%"></div>'
+                                                f'<div title="{_sn}: {_sc_cnt}" '
+                                                f'style="flex:{_sc_cnt};background-color:{_col};'
+                                                f'{_tex}"></div>'
                                             )
-                                    _sc_html += (
-                                        f'<div style="display:flex;align-items:center;'
-                                        f'gap:8px;font-size:0.85em">'
-                                        f'<div style="min-width:120px;text-align:right;'
-                                        f'color:#555">'
-                                        f'<span style="display:inline-block;width:10px;'
-                                        f'height:10px;border-radius:2px;background:{_sc_color};'
-                                        f'margin-right:5px;vertical-align:middle"></span>'
-                                        f'{_lbl}</div>'
-                                        f'<div style="flex:1;background:rgba(128,128,128,0.12);'
-                                        f'border-radius:3px;height:22px;display:flex;'
-                                        f'overflow:hidden">'
-                                        f'<div style="width:{_bar_w:.1f}%;display:flex">'
-                                        f'{_segs}</div></div>'
-                                        f'<div style="min-width:28px;color:#aaa">{_total}</div>'
-                                        f'</div>'
+                                    _r2 += (
+                                        f'<div style="flex:1;height:{_bh}px;display:flex;'
+                                        f'flex-direction:column;border-radius:4px 4px 0 0;'
+                                        f'overflow:hidden">{_segs}</div>'
                                     )
-                                _sc_legend = " &nbsp;&nbsp; ".join(
-                                    f'<span style="background:{_sc_spk_colors[_s]};'
-                                    f'border-radius:50%;display:inline-block;width:10px;'
-                                    f'height:10px;vertical-align:middle"></span> '
-                                    f'{speaker_names_an.get(_s, _s)}'
-                                    for _s in _sc_speakers
+                                _r2 += '</div>'
+                                # Row 3: stage labels below bars
+                                _r3 = '<div style="display:flex;gap:12px;margin:5px 0 10px 0">'
+                                for _lbl, _tot in _sorted_stages:
+                                    _col = _stage_color_map.get(_lbl, "#cccccc")
+                                    _r3 += (
+                                        f'<div style="flex:1;text-align:center;'
+                                        f'font-size:0.8em;color:#555">'
+                                        f'<span style="display:inline-block;width:9px;height:9px;'
+                                        f'border-radius:2px;background:{_col};margin-right:4px;'
+                                        f'vertical-align:middle"></span>{_lbl}</div>'
+                                    )
+                                _r3 += '</div>'
+                                # Row 4: speaker texture legend
+                                _r4 = (
+                                    '<div style="display:flex;gap:16px;flex-wrap:wrap;'
+                                    'font-size:0.82em;color:#555;margin-bottom:12px">'
                                 )
-                                _sc_html += (
-                                    f'</div><div style="font-size:0.8em;color:#888;'
-                                    f'margin-bottom:12px">{_sc_legend}</div>'
+                                for _s in _sc_speakers:
+                                    _tex = _spk_tex.get(_s, "")
+                                    _sn  = speaker_names_an.get(_s, _s)
+                                    _r4 += (
+                                        f'<div style="display:flex;align-items:center;gap:6px">'
+                                        f'<div style="width:24px;height:14px;background-color:#666;'
+                                        f'{_tex};border-radius:2px"></div>'
+                                        f'<span>{_sn}</span></div>'
+                                    )
+                                _r4 += '</div>'
+                                st.markdown(
+                                    _r1 + _r2 + _r3 + _r4, unsafe_allow_html=True
                                 )
-                                st.markdown(_sc_html, unsafe_allow_html=True)
                             # Compact colored turn-by-turn sequence
                             _boxes = []
                             for _si in sorted(_stages, key=lambda x: x.get("turn_index", 0)):
