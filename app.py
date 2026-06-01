@@ -2694,22 +2694,53 @@ def main() -> None:
                                 st.markdown(
                                     _r1 + _r2 + _r3 + _r4, unsafe_allow_html=True
                                 )
-                            # Compact colored turn-by-turn sequence
+                            # Build turn-text lookup: turn start_ms → full turn text
+                            _turn_text_map: dict[int, str] = {}
+                            _prev_u_spk: str | None = None
+                            _cur_turn_ms = 0
+                            _cur_turn_txts: list[str] = []
+                            for _u in utterances_an:
+                                _u_spk = _u.get("speaker", "")
+                                _u_ms  = _u.get("start_ms", 0)
+                                _u_txt = _u.get("text", "")
+                                if _u_spk != _prev_u_spk:
+                                    if _prev_u_spk is not None:
+                                        _turn_text_map[_cur_turn_ms] = " ".join(_cur_turn_txts)
+                                    _prev_u_spk  = _u_spk
+                                    _cur_turn_ms = _u_ms
+                                    _cur_turn_txts = [_u_txt]
+                                else:
+                                    _cur_turn_txts.append(_u_txt)
+                            if _prev_u_spk is not None:
+                                _turn_text_map[_cur_turn_ms] = " ".join(_cur_turn_txts)
+
+                            # Clickable chips — stage color, speaker label, turn text on expand
                             _boxes = []
                             for _si in sorted(_stages, key=lambda x: x.get("turn_index", 0)):
-                                _stg    = _si.get("dialectical_stage", "argumentation")
-                                _color  = _STAGE_COLORS.get(_stg, "#cccccc")
-                                _ts     = ms_to_ts(_si.get("start_ms", 0))
-                                _spknm  = speaker_names_an.get(_si["speaker"], _si["speaker"])
-                                _stglbl = L(_STAGE_LABEL_KEY.get(_stg, "stage_argumentation"))
+                                _stg   = _si.get("dialectical_stage", "argumentation")
+                                _color = _STAGE_COLORS.get(_stg, "#cccccc")
+                                _ts    = ms_to_ts(_si.get("start_ms", 0))
+                                _spknm = speaker_names_an.get(_si["speaker"], _si["speaker"])
+                                _raw   = _turn_text_map.get(_si.get("start_ms", 0), "")
+                                _excerpt = (_raw[:220] + "…") if len(_raw) > 220 else _raw
                                 _boxes.append(
-                                    f'<span style="background:{_color};color:#fff;border-radius:3px;'
-                                    f'padding:2px 7px;font-size:0.75em;white-space:nowrap">'
-                                    f'[{_ts}] {_spknm} · {_stglbl}</span>'
+                                    f'<details style="display:inline-block;'
+                                    f'vertical-align:top;margin:2px">'
+                                    f'<summary style="background:{_color};color:#fff;'
+                                    f'border-radius:3px;padding:2px 7px;font-size:0.75em;'
+                                    f'white-space:nowrap;cursor:pointer;list-style:none;'
+                                    f'display:inline-block">[{_ts}] {_spknm}</summary>'
+                                    f'<div style="background:{_color};color:#fff;'
+                                    f'border-radius:0 0 4px 4px;padding:6px 9px;'
+                                    f'font-size:0.8em;line-height:1.45;max-width:300px;'
+                                    f'white-space:normal;'
+                                    f'box-shadow:0 3px 10px rgba(0,0,0,0.25)">'
+                                    f'{_excerpt}</div>'
+                                    f'</details>'
                                 )
                             st.markdown(
-                                '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:8px 0">'
-                                + " ".join(_boxes) + "</div>",
+                                '<div style="display:flex;flex-wrap:wrap;gap:2px;margin:8px 0">'
+                                + "".join(_boxes) + "</div>",
                                 unsafe_allow_html=True,
                             )
                             st.divider()
