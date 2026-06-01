@@ -1921,20 +1921,62 @@ def main() -> None:
                             n=len(claims), t=len(threads), s=n_spk,
                         ))
 
-                        # Filters
-                        all_lbl   = L("filter_all")
-                        spk_opts  = [all_lbl] + [
-                            speaker_names_an.get(s, s)
-                            for s in sorted({c["speaker"] for c in claims})
-                        ]
-                        type_opts = [all_lbl] + sorted({c.get("claim_type", "") for c in claims})
+                        # ── Filter panel ──────────────────────────────────────
+                        _cf = st.session_state["claim_filter"]
 
-                        col_f1, col_f2 = st.columns(2)
-                        with col_f1:
-                            sel_spk  = st.selectbox(L("filter_speaker"), spk_opts)
-                        with col_f2:
-                            sel_type = st.selectbox(L("filter_type"), type_opts)
+                        # Row 1: always-visible filters
+                        _fr1, _fr2, _fr3, _fr4 = st.columns([2, 2, 2, 3])
+                        with _fr1:
+                            _spk_id_list = [None] + sorted({c["speaker"] for c in claims})
+                            _spk_disp    = {None: L("filter_all")} | {
+                                s: speaker_names_an.get(s, s) for s in _spk_id_list[1:]
+                            }
+                            _sel_spk = st.selectbox(
+                                L("filter_speaker"),
+                                options=_spk_id_list,
+                                format_func=lambda k: _spk_disp[k],
+                                index=_spk_id_list.index(_cf.get("speaker"))
+                                if _cf.get("speaker") in _spk_id_list else 0,
+                            )
+                            _cf["speaker"] = _sel_spk
 
+                        with _fr2:
+                            _type_list = [None] + sorted(
+                                {c.get("claim_type", "") for c in claims
+                                 if c.get("claim_type")}
+                            )
+                            _sel_type = st.selectbox(
+                                L("filter_type"),
+                                options=_type_list,
+                                format_func=lambda k: L("filter_all") if k is None else k,
+                                index=_type_list.index(_cf.get("claim_type"))
+                                if _cf.get("claim_type") in _type_list else 0,
+                            )
+                            _cf["claim_type"] = _sel_type
+
+                        with _fr3:
+                            _thr_ids  = [None] + [t["thread_id"] for t in threads]
+                            _thr_disp = {None: L("filter_all")} | {
+                                t["thread_id"]: (t.get("topic", t["thread_id"]))[:35]
+                                for t in threads
+                            }
+                            _sel_thread = st.selectbox(
+                                L("filter_thread"),
+                                options=_thr_ids,
+                                format_func=lambda k: _thr_disp.get(k, k),
+                                index=_thr_ids.index(_cf.get("thread_id"))
+                                if _cf.get("thread_id") in _thr_ids else 0,
+                            )
+                            _cf["thread_id"] = _sel_thread
+
+                        with _fr4:
+                            _sel_text = st.text_input(
+                                L("filter_text"),
+                                value=_cf.get("text_query", ""),
+                            )
+                            _cf["text_query"] = _sel_text
+
+                        # Help links (preserved from original filter area)
                         _hc1, _hc2, _ = st.columns([2, 2, 6])
                         with _hc1:
                             if st.button(f"→ {L('help_link_claims')}", key="help_claims_table"):
@@ -1943,18 +1985,268 @@ def main() -> None:
                             if st.button(f"→ {L('help_link_threads')}", key="help_threads_table"):
                                 help_dialogs.threads_dialog(lang)
 
-                        filtered = claims
-                        if sel_spk != all_lbl:
-                            sid_lookup = {v: k for k, v in speaker_names_an.items()}
-                            target_sid = sid_lookup.get(sel_spk, sel_spk)
-                            filtered   = [c for c in filtered if c["speaker"] == target_sid]
-                        if sel_type != all_lbl:
-                            filtered = [c for c in filtered if c.get("claim_type") == sel_type]
+                        # Default for _cn_disp (used in chip display even when no responses)
+                        _cn_disp = {
+                            None: L("filter_conn_any"),
+                            1:    L("filter_conn_1"),
+                            3:    L("filter_conn_3"),
+                            0:    L("filter_conn_0"),
+                        }
+
+                        # Row 2: more filters expander
+                        with st.expander(L("filter_more"), expanded=False):
+                            _mf_col_idx = 0
+                            _mf_cols    = st.columns(4)
+
+                            # Verdict
+                            if verdicts:
+                                _v_opts = sorted({
+                                    v.get("verdict") for v in verdicts.values()
+                                    if v.get("verdict")
+                                })
+                                with _mf_cols[_mf_col_idx % 4]:
+                                    _sel_v = st.multiselect(
+                                        L("filter_verdict"),
+                                        options=_v_opts,
+                                        default=[
+                                            x for x in _cf.get("verdicts", [])
+                                            if x in _v_opts
+                                        ],
+                                        format_func=lambda k: L(f"verdict_{k}")
+                                        if f"verdict_{k}" in LABELS else k,
+                                    )
+                                    _cf["verdicts"] = _sel_v
+                                _mf_col_idx += 1
+
+                            # Argument status
+                            if _surv_ss_f:
+                                _sa_opts = [None, "grounded", "contested", "unattacked"]
+                                with _mf_cols[_mf_col_idx % 4]:
+                                    _sel_sa = st.selectbox(
+                                        L("filter_survivability"),
+                                        options=_sa_opts,
+                                        format_func=lambda k: L("filter_any")
+                                        if k is None else L(f"surv_{k}"),
+                                        index=_sa_opts.index(_cf.get("survivability"))
+                                        if _cf.get("survivability") in _sa_opts else 0,
+                                    )
+                                    _cf["survivability"] = _sel_sa
+                                _mf_col_idx += 1
+
+                            # Has fallacy
+                            if _rhet_ss_f:
+                                _hf_opts = [None, True, False]
+                                _hf_disp = {
+                                    None:  L("filter_any"),
+                                    True:  L("filter_yes"),
+                                    False: L("filter_no"),
+                                }
+                                with _mf_cols[_mf_col_idx % 4]:
+                                    _sel_hf = st.selectbox(
+                                        L("filter_has_fallacy"),
+                                        options=_hf_opts,
+                                        format_func=lambda k: _hf_disp[k],
+                                        index=_hf_opts.index(_cf.get("has_fallacy"))
+                                        if _cf.get("has_fallacy") in _hf_opts else 0,
+                                    )
+                                    _cf["has_fallacy"] = _sel_hf
+                                _mf_col_idx += 1
+
+                            # Has device
+                            if _rhet_ss_f:
+                                _hd_opts = [None, True, False]
+                                _hd_disp = {
+                                    None:  L("filter_any"),
+                                    True:  L("filter_yes"),
+                                    False: L("filter_no"),
+                                }
+                                with _mf_cols[_mf_col_idx % 4]:
+                                    _sel_hd = st.selectbox(
+                                        L("filter_has_device"),
+                                        options=_hd_opts,
+                                        format_func=lambda k: _hd_disp[k],
+                                        index=_hd_opts.index(_cf.get("has_device"))
+                                        if _cf.get("has_device") in _hd_opts else 0,
+                                    )
+                                    _cf["has_device"] = _sel_hd
+                                _mf_col_idx += 1
+
+                            # Connections
+                            if _resp_ss_f:
+                                _cn_opts = [None, 1, 3, 0]
+                                with _mf_cols[_mf_col_idx % 4]:
+                                    _sel_cn = st.selectbox(
+                                        L("filter_connections"),
+                                        options=_cn_opts,
+                                        format_func=lambda k: _cn_disp[k],
+                                        index=_cn_opts.index(_cf.get("connections"))
+                                        if _cf.get("connections") in _cn_opts else 0,
+                                    )
+                                    _cf["connections"] = _sel_cn
+                                _mf_col_idx += 1
+
+                            # Checkable
+                            _ck_opts = [None, True, False]
+                            _ck_disp = {
+                                None:  L("filter_any"),
+                                True:  L("filter_yes"),
+                                False: L("filter_no"),
+                            }
+                            with _mf_cols[_mf_col_idx % 4]:
+                                _sel_ck = st.selectbox(
+                                    L("filter_checkable"),
+                                    options=_ck_opts,
+                                    format_func=lambda k: _ck_disp[k],
+                                    index=_ck_opts.index(_cf.get("checkable"))
+                                    if _cf.get("checkable") in _ck_opts else 0,
+                                )
+                                _cf["checkable"] = _sel_ck
+                            _mf_col_idx += 1
+
+                            # Qualifier
+                            _ql_vals = sorted({
+                                c.get("qualifier", "") for c in claims
+                                if c.get("qualifier")
+                            })
+                            if _ql_vals:
+                                _ql_opts = [None] + _ql_vals
+                                _ql_disp = LABELS["qualifier_labels"][lang]
+                                with _mf_cols[_mf_col_idx % 4]:
+                                    _sel_ql = st.selectbox(
+                                        L("filter_qualifier"),
+                                        options=_ql_opts,
+                                        format_func=lambda k: L("filter_any")
+                                        if k is None else _ql_disp.get(k, k),
+                                        index=_ql_opts.index(_cf.get("qualifier"))
+                                        if _cf.get("qualifier") in _ql_opts else 0,
+                                    )
+                                    _cf["qualifier"] = _sel_ql
+                                _mf_col_idx += 1
+
+                            # Stance (only if motion set)
+                            if st.session_state.get("motion", "").strip():
+                                _st_opts = [None, "pro", "con", "neutral"]
+                                _st_disp = {
+                                    None:      L("filter_any"),
+                                    "pro":     L("stance_pro"),
+                                    "con":     L("stance_con"),
+                                    "neutral": L("stance_neutral"),
+                                }
+                                with _mf_cols[_mf_col_idx % 4]:
+                                    _sel_st = st.selectbox(
+                                        L("filter_stance"),
+                                        options=_st_opts,
+                                        format_func=lambda k: _st_disp[k],
+                                        index=_st_opts.index(_cf.get("stance"))
+                                        if _cf.get("stance") in _st_opts else 0,
+                                    )
+                                    _cf["stance"] = _sel_st
+
+                        # Row 3: active filter chips + clear
+                        _CHIP_LABELS: dict[str, tuple] = {}
+                        if _cf.get("speaker"):
+                            _CHIP_LABELS["speaker"] = (
+                                L("filter_speaker"),
+                                speaker_names_an.get(_cf["speaker"], _cf["speaker"]),
+                            )
+                        if _cf.get("claim_type"):
+                            _CHIP_LABELS["claim_type"] = (L("filter_type"), _cf["claim_type"])
+                        if _cf.get("thread_id"):
+                            _tn = _thr_disp.get(_cf["thread_id"], _cf["thread_id"])
+                            _CHIP_LABELS["thread_id"] = (L("filter_thread"), _tn[:20])
+                        if _cf.get("text_query", "").strip():
+                            _CHIP_LABELS["text_query"] = (
+                                "🔍", f'"{_cf["text_query"][:18]}"'
+                            )
+                        if _cf.get("verdicts"):
+                            _CHIP_LABELS["verdicts"] = (
+                                L("filter_verdict"), ", ".join(_cf["verdicts"])
+                            )
+                        if _cf.get("survivability"):
+                            _CHIP_LABELS["survivability"] = (
+                                L("filter_survivability"),
+                                L(f'surv_{_cf["survivability"]}'),
+                            )
+                        if _cf.get("has_fallacy") is not None:
+                            _CHIP_LABELS["has_fallacy"] = (
+                                L("filter_has_fallacy"),
+                                L("filter_yes") if _cf["has_fallacy"] else L("filter_no"),
+                            )
+                        if _cf.get("has_device") is not None:
+                            _CHIP_LABELS["has_device"] = (
+                                L("filter_has_device"),
+                                L("filter_yes") if _cf["has_device"] else L("filter_no"),
+                            )
+                        if _cf.get("connections") is not None:
+                            _CHIP_LABELS["connections"] = (
+                                L("filter_connections"),
+                                _cn_disp.get(_cf["connections"], str(_cf["connections"])),
+                            )
+                        if _cf.get("checkable") is not None:
+                            _CHIP_LABELS["checkable"] = (
+                                L("filter_checkable"),
+                                L("filter_yes") if _cf["checkable"] else L("filter_no"),
+                            )
+                        if _cf.get("qualifier"):
+                            _ql_disp2 = LABELS["qualifier_labels"][lang]
+                            _CHIP_LABELS["qualifier"] = (
+                                L("filter_qualifier"),
+                                _ql_disp2.get(_cf["qualifier"], _cf["qualifier"]),
+                            )
+                        if _cf.get("stance"):
+                            _CHIP_LABELS["stance"] = (
+                                L("filter_stance"),
+                                {
+                                    "pro":     L("stance_pro"),
+                                    "con":     L("stance_con"),
+                                    "neutral": L("stance_neutral"),
+                                }.get(_cf["stance"], _cf["stance"]),
+                            )
+
+                        if _CHIP_LABELS:
+                            _chip_cols = st.columns(len(_CHIP_LABELS) + 1)
+                            _DEFAULTS  = {
+                                "speaker": None, "claim_type": None, "thread_id": None,
+                                "text_query": "", "verdicts": [], "survivability": None,
+                                "has_fallacy": None, "has_device": None,
+                                "connections": None, "checkable": None,
+                                "qualifier": None, "stance": None,
+                            }
+                            for _ci, (_ck, (_cl, _cv)) in enumerate(_CHIP_LABELS.items()):
+                                with _chip_cols[_ci]:
+                                    if st.button(
+                                        f"✕ {_cl}: {_cv}",
+                                        key=f"chip_clear_{_ck}",
+                                        use_container_width=True,
+                                    ):
+                                        _cf[_ck] = _DEFAULTS.get(_ck)
+                                        st.rerun()
+                            with _chip_cols[-1]:
+                                if st.button(
+                                    L("filter_clear_all"),
+                                    key="chip_clear_all",
+                                    use_container_width=True,
+                                ):
+                                    st.session_state["claim_filter"] = {}
+                                    st.rerun()
+
+                        # Apply filters → sorted_claims
+                        _filtered_claims = apply_filters(
+                            claims, _cf, verdicts, _surv_ss_f,
+                            _claim_has_fallacy, _claim_has_device, _claim_conn_count,
+                        )
+                        st.session_state["filtered_claims"] = _filtered_claims
 
                         sorted_claims = sorted(
-                            filtered,
+                            _filtered_claims,
                             key=lambda c: (c.get("thread_id", ""), c.get("start_ms", 0)),
                         )
+                        if len(sorted_claims) < len(claims):
+                            st.caption(
+                                LABELS["filter_count"][lang].format(
+                                    n=len(sorted_claims), m=len(claims)
+                                )
+                            )
 
                         # Verdict badge helper
                         _VSTYLE = {
