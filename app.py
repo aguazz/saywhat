@@ -200,6 +200,30 @@ LABELS = {
     "filter_speaker":    {"English": "Filter by speaker",        "Español": "Filtrar por hablante"},
     "filter_type":       {"English": "Filter by type",           "Español": "Filtrar por tipo"},
     "filter_all":        {"English": "All",                      "Español": "Todos"},
+    "filter_thread":        {"English": "Filter by thread",          "Español": "Filtrar por hilo"},
+    "filter_text":          {"English": "Search claims…",             "Español": "Buscar afirmaciones…"},
+    "filter_more":          {"English": "More filters",               "Español": "Más filtros"},
+    "filter_verdict":       {"English": "Verdict",                    "Español": "Veredicto"},
+    "filter_survivability": {"English": "Argument status",            "Español": "Estado del argumento"},
+    "filter_has_fallacy":   {"English": "Has fallacy",                "Español": "Contiene falacia"},
+    "filter_has_device":    {"English": "Has rhetorical device",      "Español": "Contiene recurso retórico"},
+    "filter_connections":   {"English": "Connections",                "Español": "Conexiones"},
+    "filter_conn_any":      {"English": "Any",                        "Español": "Cualquiera"},
+    "filter_conn_1":        {"English": "Has at least 1",             "Español": "Al menos 1"},
+    "filter_conn_3":        {"English": "Highly connected (≥ 3)",     "Español": "Muy conectada (≥ 3)"},
+    "filter_conn_0":        {"English": "Isolated (0 connections)",   "Español": "Aislada (0 conexiones)"},
+    "filter_checkable":     {"English": "Checkable",                  "Español": "Verificable"},
+    "filter_qualifier":     {"English": "Certainty",                  "Español": "Certeza"},
+    "filter_stance":        {"English": "Stance on motion",           "Español": "Posición respecto a la moción"},
+    "filter_clear_all":     {"English": "Clear all",                  "Español": "Borrar todo"},
+    "filter_count":         {"English": "{n} of {m} claims",          "Español": "{n} de {m} afirmaciones"},
+    "filter_any":           {"English": "Any",                        "Español": "Cualquiera"},
+    "filter_yes":           {"English": "Yes",                        "Español": "Sí"},
+    "filter_no":            {"English": "No",                         "Español": "No"},
+    "graph_filter_caption": {
+        "English": "Showing {n} of {m} claims · filter active",
+        "Español": "Mostrando {n} de {m} afirmaciones · filtro activo",
+    },
     "col_thread":        {"English": "Thread",                   "Español": "Hilo"},
     "col_speaker":       {"English": "Speaker",                  "Español": "Hablante"},
     "col_time":          {"English": "Time",                     "Español": "Tiempo"},
@@ -936,6 +960,55 @@ def _build_thread_timeline(
     html += '</div>'        # close outer
 
     return html
+
+
+def apply_filters(
+    claims: list[dict],
+    cf: dict,
+    verdicts: dict,
+    survivability: dict,
+    has_fallacy_map: dict,
+    has_device_map: dict,
+    conn_count_map: dict,
+) -> list[dict]:
+    """Return the subset of claims matching all active filters (AND logic)."""
+    result = claims
+
+    if cf.get("speaker"):
+        result = [c for c in result if c.get("speaker") == cf["speaker"]]
+    if cf.get("claim_type"):
+        result = [c for c in result if c.get("claim_type") == cf["claim_type"]]
+    if cf.get("thread_id"):
+        result = [c for c in result if c.get("thread_id") == cf["thread_id"]]
+    if cf.get("text_query", "").strip():
+        _q = cf["text_query"].strip().lower()
+        result = [c for c in result if _q in c.get("text", "").lower()]
+    if cf.get("verdicts"):
+        result = [c for c in result
+                  if verdicts.get(c["id"], {}).get("verdict") in cf["verdicts"]]
+    if cf.get("survivability"):
+        result = [c for c in result
+                  if survivability.get(c["id"]) == cf["survivability"]]
+    if cf.get("has_fallacy") is not None:
+        result = [c for c in result
+                  if has_fallacy_map.get(c["id"], False) == cf["has_fallacy"]]
+    if cf.get("has_device") is not None:
+        result = [c for c in result
+                  if has_device_map.get(c["id"], False) == cf["has_device"]]
+    if cf.get("connections") is not None:
+        _th = cf["connections"]
+        if _th == 0:
+            result = [c for c in result if conn_count_map.get(c["id"], 0) == 0]
+        else:
+            result = [c for c in result if conn_count_map.get(c["id"], 0) >= _th]
+    if cf.get("checkable") is not None:
+        result = [c for c in result if bool(c.get("checkable")) == cf["checkable"]]
+    if cf.get("qualifier"):
+        result = [c for c in result if c.get("qualifier") == cf["qualifier"]]
+    if cf.get("stance"):
+        result = [c for c in result if c.get("stance") == cf["stance"]]
+
+    return result
 
 
 def main() -> None:
@@ -1804,6 +1877,41 @@ def main() -> None:
                     claims   = analysis.get("claims", [])
                     threads  = analysis.get("threads", [])
                     verdicts = st.session_state.get("verdicts", {})
+
+                    # ── Derived filter attributes ──────────────────────────────
+                    _rhet_ss_f  = st.session_state.get("rhetoric") or []
+                    _resp_ss_f  = st.session_state.get("responses") or []
+                    _surv_ss_f  = st.session_state.get("survivability", {})
+
+                    _rh_by_ms_f = {item["start_ms"]: item for item in _rhet_ss_f}
+
+                    _claim_has_fallacy: dict[str, bool] = {
+                        c["id"]: bool(
+                            _rh_by_ms_f.get(c.get("start_ms", -1), {}).get("fallacies")
+                        )
+                        for c in claims
+                    }
+                    _claim_has_device: dict[str, bool] = {
+                        c["id"]: any(
+                            not d.get("is_fallacy", False)
+                            for d in _rh_by_ms_f.get(
+                                c.get("start_ms", -1), {}
+                            ).get("rhetorical_devices", [])
+                        )
+                        for c in claims
+                    }
+                    _conn_counter: dict[str, int] = {}
+                    for _resp_f in _resp_ss_f:
+                        for _ck in ("from_claim_id", "responds_to_claim_id"):
+                            _cid_f = _resp_f.get(_ck, "")
+                            if _cid_f:
+                                _conn_counter[_cid_f] = _conn_counter.get(_cid_f, 0) + 1
+                    _claim_conn_count: dict[str, int] = {
+                        c["id"]: _conn_counter.get(c["id"], 0) for c in claims
+                    }
+
+                    if "claim_filter" not in st.session_state:
+                        st.session_state["claim_filter"] = {}
 
                     if not claims:
                         st.info(L("analysis_no_claims"))
