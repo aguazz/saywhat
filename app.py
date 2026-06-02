@@ -372,6 +372,10 @@ LABELS = {
     "card_hide_minimap":  {"English": "Hide neighbourhood map", "Español": "Ocultar mapa de vecindad"},
     "card_no_connections":{"English": "This claim has no direct argument connections.",
                            "Español": "Esta afirmación no tiene conexiones de argumento directas."},
+    "card_empty_hint":    {
+        "English": "Click any block in the timeline to see the full claim details here.",
+        "Español": "Haz clic en cualquier bloque de la línea de tiempo para ver los detalles aquí.",
+    },
     "subtab_map":        {"English": "Argument Map",         "Español": "Mapa de argumentos"},
     # ── Fact-Check tab ───────────────────────────────────────────────────────
     "fc_run_first": {
@@ -1211,6 +1215,268 @@ def _suggest_motions(
     )
     raw = response.content[0].text.strip()
     return [ln.strip() for ln in raw.splitlines() if ln.strip()][:5]
+
+
+def _render_claim_card(
+    sel_c: dict,
+    tl_claims: list,
+    tl_threads: list,
+    speaker_names: dict,
+    lang: str,
+) -> None:
+    """Render the detailed claim card into whatever Streamlit container is currently active."""
+    L = lambda key: LABELS.get(key, {}).get(lang, key)
+
+    _sel_id    = sel_c["id"]
+    _sel_spk   = speaker_names.get(sel_c["speaker"], sel_c["speaker"])
+    _sel_tid   = sel_c.get("thread_id", "")
+    _sel_topic = next(
+        (t.get("topic", _sel_tid) for t in tl_threads if t["thread_id"] == _sel_tid),
+        _sel_tid,
+    )
+    _sel_ms    = sel_c.get("start_ms", 0)
+
+    _STAGE_KEY_MAP = {
+        "confrontation": "stage_confrontation",
+        "opening":       "stage_opening",
+        "argumentation": "stage_argumentation",
+        "concluding":    "stage_concluding",
+    }
+    _sel_stage = ""
+    for _st_turn in st.session_state.get("stages", []):
+        if (_st_turn.get("speaker") == sel_c["speaker"]
+                and _st_turn.get("start_ms", 0) <= _sel_ms
+                and _st_turn.get("end_ms", _sel_ms + 1) >= _sel_ms):
+            _sel_stage = _st_turn.get("dialectical_stage", "")
+            break
+    _sel_stage_lbl = L(_STAGE_KEY_MAP[_sel_stage]) if _sel_stage in _STAGE_KEY_MAP else ""
+
+    # 1. Claim text + metadata line
+    st.markdown(f"> {sel_c['text']}")
+    _meta_parts = [
+        f"**{L('col_speaker')}:** {_sel_spk}",
+        f"**{L('col_time')}:** {ms_to_ts(_sel_ms)}",
+        f"**{L('timeline_thread')}:** {_sel_topic}",
+    ]
+    if _sel_stage_lbl:
+        _meta_parts.append(f"**{L('card_stage')}:** {_sel_stage_lbl}")
+    st.markdown(" &nbsp;·&nbsp; ".join(_meta_parts), unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # 2. Type & status badges
+    _sel_type      = sel_c.get("claim_type", "")
+    _sel_checkable = sel_c.get("checkable", False)
+    _sel_surv_ss   = st.session_state.get("survivability", {})
+    _sel_surv_st   = _sel_surv_ss.get(_sel_id, "")
+    _SURV_DOT = {
+        "grounded":   '<span style="color:#2ca02c;font-weight:bold">●</span>',
+        "contested":  '<span style="color:#ff7f0e;font-weight:bold">●</span>',
+        "unattacked": '<span style="color:#aaaaaa">○</span>',
+    }
+    _SURV_LBL = {
+        "grounded":   L("surv_grounded"),
+        "contested":  L("surv_contested"),
+        "unattacked": L("surv_unattacked"),
+    }
+    _type_badge = (
+        f'<span style="background:#f0f0f0;border-radius:4px;'
+        f'padding:1px 8px;font-size:0.82em">{_sel_type}</span>'
+    ) if _sel_type else ""
+    _check_badge = (
+        f'<span style="background:#e8f5e9;border-radius:4px;'
+        f'padding:1px 8px;font-size:0.82em">{L("col_checkable")}</span>'
+        if _sel_checkable else
+        f'<span style="background:#f5f5f5;border-radius:4px;'
+        f'padding:1px 8px;font-size:0.82em;color:#aaa">not checkable</span>'
+    )
+    _surv_part = ""
+    if _sel_surv_st:
+        _surv_part = (
+            f" &nbsp; {_SURV_DOT.get(_sel_surv_st, '')} "
+            f"<small>{_SURV_LBL.get(_sel_surv_st, '')}</small>"
+        )
+    st.markdown(
+        " &nbsp; ".join(b for b in [_type_badge, _check_badge] if b) + _surv_part,
+        unsafe_allow_html=True,
+    )
+
+    # 3. Verdict section
+    _verdicts_ss = st.session_state.get("verdicts", {})
+    if _verdicts_ss and _sel_checkable:
+        _vdict = _verdicts_ss.get(_sel_id)
+        if _vdict:
+            st.markdown("---")
+            st.markdown(f"**{L('col_verdict')}**")
+            _v_key = _vdict.get("verdict", "")
+            _VSTYLE_CARD = {
+                "true":           ("#d4edda", L("verdict_true")),
+                "partially_true": ("#fff3cd", L("verdict_partly_true")),
+                "contested":      ("#fde8c8", L("verdict_contested")),
+                "misleading":     ("#fde8c8", L("verdict_misleading")),
+                "false":          ("#f8d7da", L("verdict_false")),
+                "unverifiable":   ("#e2e3e5", L("verdict_unverifiable")),
+                "subjective":     ("#e2e3e5", L("verdict_subjective")),
+            }
+            _v_bg, _v_lbl = _VSTYLE_CARD.get(_v_key, ("#e2e3e5", _v_key))
+            _v_conf = int(_vdict.get("confidence", 0.0) * 100)
+            st.markdown(
+                f'<span style="background:{_v_bg};border-radius:4px;'
+                f'padding:2px 10px;font-size:0.88em">{_v_lbl}</span>'
+                f' <small style="color:#888">{_v_conf}%</small>',
+                unsafe_allow_html=True,
+            )
+            _v_expl = _vdict.get("explanation", "")
+            if _v_expl:
+                st.caption(_v_expl)
+            if _v_key == "contested":
+                if _vdict.get("for_the_claim"):
+                    st.markdown(f"**{L('in_favour')}** {_vdict['for_the_claim']}")
+                if _vdict.get("against_the_claim"):
+                    st.markdown(f"**{L('against')}** {_vdict['against_the_claim']}")
+            _ks = _vdict.get("key_source", "")
+            if _ks:
+                st.caption(f"**{L('sources')}:** {_ks}")
+
+    # 4. Connections section
+    _responses_ss = st.session_state.get("responses", [])
+    if _responses_ss:
+        st.markdown("---")
+        _claim_lookup = {c["id"]: c for c in tl_claims}
+        _responds_to_ids = [
+            r["responds_to_claim_id"] for r in _responses_ss
+            if r.get("from_claim_id") == _sel_id
+        ]
+        _challenged_by_ids = [
+            r["from_claim_id"] for r in _responses_ss
+            if (r.get("responds_to_claim_id") == _sel_id
+                and r.get("relationship") in ("refutes", "undercuts", "weakens"))
+        ]
+        _supported_by_ids = [
+            r["from_claim_id"] for r in _responses_ss
+            if (r.get("responds_to_claim_id") == _sel_id
+                and r.get("relationship") in ("supports", "concedes"))
+        ]
+        st.markdown(
+            f"**{L('card_connections')}** — "
+            f"{L('card_responds_to')} **{len(_responds_to_ids)}** · "
+            f"{L('card_challenged_by')} **{len(_challenged_by_ids)}** · "
+            f"{L('card_supported_by')} **{len(_supported_by_ids)}**",
+            unsafe_allow_html=True,
+        )
+        for _c_label, _c_ids in [
+            (L("card_responds_to"),   _responds_to_ids),
+            (L("card_challenged_by"), _challenged_by_ids),
+            (L("card_supported_by"),  _supported_by_ids),
+        ]:
+            if _c_ids:
+                _c_items = []
+                for _cid2 in _c_ids:
+                    _cc = _claim_lookup.get(_cid2)
+                    if _cc:
+                        _cc_spk = speaker_names.get(_cc["speaker"], _cc["speaker"])
+                        _cc_txt = (_cc["text"][:70] + ("…" if len(_cc["text"]) > 70 else ""))
+                        _c_items.append(f"**{_cc_spk}:** {_cc_txt}")
+                if _c_items:
+                    st.markdown(
+                        f"<small><em>{_c_label}:</em></small>", unsafe_allow_html=True
+                    )
+                    for _ci in _c_items:
+                        st.markdown(f"- {_ci}")
+
+    # 5. Rhetoric section
+    _rhetoric_ss = st.session_state.get("rhetoric", [])
+    if _rhetoric_ss:
+        _rh_entry = next(
+            (r for r in _rhetoric_ss
+             if (r.get("speaker") == sel_c["speaker"]
+                 and r.get("start_ms", 0) <= _sel_ms
+                 and r.get("end_ms", _sel_ms + 1) >= _sel_ms)),
+            None,
+        )
+        if _rh_entry:
+            _rh_falls   = _rh_entry.get("fallacies", [])
+            _rh_devices = _rh_entry.get("rhetorical_devices", [])
+            if _rh_falls or _rh_devices:
+                st.markdown("---")
+                st.markdown(f"**{L('card_rhetoric')}**")
+                st.caption(L("card_rhetoric_scope"))
+                if _rh_falls:
+                    st.markdown(f"*{L('rhetoric_fallacies')}*")
+                    for _f in _rh_falls:
+                        _f_lbl   = _f.get("label", _f.get("type", ""))
+                        _f_quote = _f.get("quote", "")
+                        _f_expl  = _f.get("explanation", "")
+                        _f_line  = f"- **{_f_lbl}**"
+                        if _f_quote:
+                            _f_line += f' — "{_f_quote}"'
+                        if _f_expl:
+                            _f_line += f": {_f_expl}"
+                        st.markdown(_f_line)
+                if _rh_devices:
+                    st.markdown(f"*{L('rhetoric_devices')}*")
+                    for _d in _rh_devices:
+                        _d_lbl   = _d.get("label", _d.get("type", ""))
+                        _d_quote = _d.get("quote", "")
+                        _d_line  = f"- **{_d_lbl}**"
+                        if _d_quote:
+                            _d_line += f' — "{_d_quote}"'
+                        st.markdown(_d_line)
+
+    # 5.5 Mini neighbourhood map (250 px — narrower column)
+    if _responses_ss:
+        st.markdown("---")
+        _mm_key  = f"minimap_open_{_sel_id}"
+        _mm_open = st.session_state.get(_mm_key, False)
+        _nb_ids  = set()
+        for _r in _responses_ss:
+            if _r.get("from_claim_id") == _sel_id:
+                _nb_ids.add(_r["responds_to_claim_id"])
+            if _r.get("responds_to_claim_id") == _sel_id:
+                _nb_ids.add(_r["from_claim_id"])
+        if not _nb_ids:
+            st.caption(L("card_no_connections"))
+        else:
+            _mm_btn_lbl = L("card_hide_minimap") if _mm_open else L("card_show_minimap")
+            if st.button(_mm_btn_lbl, key=f"mm_btn_{_sel_id}"):
+                st.session_state[_mm_key] = not _mm_open
+                st.rerun()
+            if _mm_open:
+                _mm_ids    = {_sel_id} | _nb_ids
+                _mm_claims = [c for c in tl_claims if c["id"] in _mm_ids]
+                _mm_resp   = [
+                    r for r in _responses_ss
+                    if (r.get("from_claim_id") in _mm_ids
+                        and r.get("responds_to_claim_id") in _mm_ids)
+                ]
+                _mm_html = build_graph_html(
+                    _mm_claims,
+                    _mm_resp,
+                    speaker_names,
+                    survivability=st.session_state.get("survivability"),
+                    verdicts=st.session_state.get("verdicts"),
+                )
+                if _mm_html:
+                    components.html(_mm_html, height=250, scrolling=False)
+
+    # 6. Thread context expander
+    _co_claims = [
+        c for c in tl_claims
+        if c.get("thread_id") == _sel_tid and c["id"] != _sel_id
+    ]
+    if _co_claims:
+        _co_sorted = sorted(_co_claims, key=lambda c: c.get("start_ms", 0))
+        _rows = []
+        for _co in _co_sorted:
+            _co_spk = speaker_names.get(_co["speaker"], _co["speaker"])
+            _co_ts  = ms_to_ts(_co.get("start_ms", 0))
+            _rows.append(
+                f"[{_co_ts}] **{_co_spk}** — {_co['text'][:90]}"
+                + ("…" if len(_co["text"]) > 90 else "")
+            )
+        with st.expander(f"Other claims in this thread ({len(_co_claims)})"):
+            for _row in _rows:
+                st.markdown(f"- {_row}")
 
 
 def apply_filters(
@@ -3414,304 +3680,27 @@ def main() -> None:
                             color_mode=_tl_color_mode,
                             claim_stage_map=_claim_stage_map,
                         )
-                        if _tl_html:
-                            _tl_h = len(_tl_threads) * 33 + 82
-                            components.html(_tl_html, height=_tl_h, scrolling=False)
+                        # ── 60/40 split: timeline (left) | claim card (right) ──
+                        _tl_left, _tl_right = st.columns([3, 2])
 
-                        # ── Selected claim detail ──────────────────────────────
-                        if _sel_cid:
-                            _sel_c = next(
-                                (c for c in _tl_claims if c["id"] == _sel_cid), None
-                            )
-                            if _sel_c:
-                                _sel_id    = _sel_c["id"]
-                                _sel_spk   = speaker_names_an.get(_sel_c["speaker"], _sel_c["speaker"])
-                                _sel_tid   = _sel_c.get("thread_id", "")
-                                _sel_topic = next(
-                                    (t.get("topic", _sel_tid) for t in _tl_threads
-                                     if t["thread_id"] == _sel_tid), _sel_tid
-                                )
-                                _sel_ms    = _sel_c.get("start_ms", 0)
-
-                                # Stage lookup — find the turn that contains this claim
-                                _sel_stage = ""
-                                _STAGE_KEY_MAP = {
-                                    "confrontation": "stage_confrontation",
-                                    "opening":       "stage_opening",
-                                    "argumentation": "stage_argumentation",
-                                    "concluding":    "stage_concluding",
-                                }
-                                for _st_turn in st.session_state.get("stages", []):
-                                    if (_st_turn.get("speaker") == _sel_c["speaker"]
-                                            and _st_turn.get("start_ms", 0) <= _sel_ms
-                                            and _st_turn.get("end_ms", _sel_ms + 1) >= _sel_ms):
-                                        _sel_stage = _st_turn.get("dialectical_stage", "")
-                                        break
-                                _sel_stage_lbl = (
-                                    L(_STAGE_KEY_MAP[_sel_stage])
-                                    if _sel_stage in _STAGE_KEY_MAP else ""
-                                )
-
-                                st.divider()
-                                st.markdown(f"**{L('timeline_selected')}**")
-
-                                with st.container(border=True):
-
-                                    # 1. Full claim text + metadata line
-                                    st.markdown(f"> {_sel_c['text']}")
-                                    _meta_parts = [
-                                        f"**{L('col_speaker')}:** {_sel_spk}",
-                                        f"**{L('col_time')}:** {ms_to_ts(_sel_ms)}",
-                                        f"**{L('timeline_thread')}:** {_sel_topic}",
-                                    ]
-                                    if _sel_stage_lbl:
-                                        _meta_parts.append(f"**{L('card_stage')}:** {_sel_stage_lbl}")
-                                    st.markdown(
-                                        " &nbsp;·&nbsp; ".join(_meta_parts),
-                                        unsafe_allow_html=True,
+                        with _tl_right:
+                            with st.container(border=True):
+                                if not _sel_cid:
+                                    st.info(L("card_empty_hint"))
+                                else:
+                                    _sel_c = next(
+                                        (c for c in _tl_claims if c["id"] == _sel_cid), None
                                     )
-
-                                    st.markdown("---")
-
-                                    # 2. Type & status badges
-                                    _sel_type      = _sel_c.get("claim_type", "")
-                                    _sel_checkable = _sel_c.get("checkable", False)
-                                    _sel_surv_ss   = st.session_state.get("survivability", {})
-                                    _sel_surv_st   = _sel_surv_ss.get(_sel_id, "")
-                                    _SURV_DOT = {
-                                        "grounded":   '<span style="color:#2ca02c;font-weight:bold">●</span>',
-                                        "contested":  '<span style="color:#ff7f0e;font-weight:bold">●</span>',
-                                        "unattacked": '<span style="color:#aaaaaa">○</span>',
-                                    }
-                                    _SURV_LBL = {
-                                        "grounded":   L("surv_grounded"),
-                                        "contested":  L("surv_contested"),
-                                        "unattacked": L("surv_unattacked"),
-                                    }
-                                    _type_badge  = (
-                                        f'<span style="background:#f0f0f0;border-radius:4px;'
-                                        f'padding:1px 8px;font-size:0.82em">{_sel_type}</span>'
-                                    ) if _sel_type else ""
-                                    _check_badge = (
-                                        f'<span style="background:#e8f5e9;border-radius:4px;'
-                                        f'padding:1px 8px;font-size:0.82em">{L("col_checkable")}</span>'
-                                        if _sel_checkable else
-                                        f'<span style="background:#f5f5f5;border-radius:4px;'
-                                        f'padding:1px 8px;font-size:0.82em;color:#aaa">'
-                                        f'not checkable</span>'
-                                    )
-                                    _surv_part = ""
-                                    if _sel_surv_st:
-                                        _surv_part = (
-                                            f" &nbsp; {_SURV_DOT.get(_sel_surv_st, '')} "
-                                            f"<small>{_SURV_LBL.get(_sel_surv_st, '')}</small>"
+                                    if _sel_c:
+                                        _render_claim_card(
+                                            _sel_c, _tl_claims, _tl_threads,
+                                            speaker_names_an, lang,
                                         )
-                                    st.markdown(
-                                        " &nbsp; ".join(b for b in [_type_badge, _check_badge] if b)
-                                        + _surv_part,
-                                        unsafe_allow_html=True,
-                                    )
 
-                                    # 3. Verdict section
-                                    _verdicts_ss = st.session_state.get("verdicts", {})
-                                    if _verdicts_ss and _sel_checkable:
-                                        _vdict = _verdicts_ss.get(_sel_id)
-                                        if _vdict:
-                                            st.markdown("---")
-                                            st.markdown(f"**{L('col_verdict')}**")
-                                            _v_key = _vdict.get("verdict", "")
-                                            _VSTYLE_CARD = {
-                                                "true":           ("#d4edda", L("verdict_true")),
-                                                "partially_true": ("#fff3cd", L("verdict_partly_true")),
-                                                "contested":      ("#fde8c8", L("verdict_contested")),
-                                                "misleading":     ("#fde8c8", L("verdict_misleading")),
-                                                "false":          ("#f8d7da", L("verdict_false")),
-                                                "unverifiable":   ("#e2e3e5", L("verdict_unverifiable")),
-                                                "subjective":     ("#e2e3e5", L("verdict_subjective")),
-                                            }
-                                            _v_bg, _v_lbl = _VSTYLE_CARD.get(_v_key, ("#e2e3e5", _v_key))
-                                            _v_conf = int(_vdict.get("confidence", 0.0) * 100)
-                                            st.markdown(
-                                                f'<span style="background:{_v_bg};border-radius:4px;'
-                                                f'padding:2px 10px;font-size:0.88em">{_v_lbl}</span>'
-                                                f' <small style="color:#888">{_v_conf}%</small>',
-                                                unsafe_allow_html=True,
-                                            )
-                                            _v_expl = _vdict.get("explanation", "")
-                                            if _v_expl:
-                                                st.caption(_v_expl)
-                                            if _v_key == "contested":
-                                                if _vdict.get("for_the_claim"):
-                                                    st.markdown(f"**{L('in_favour')}** {_vdict['for_the_claim']}")
-                                                if _vdict.get("against_the_claim"):
-                                                    st.markdown(f"**{L('against')}** {_vdict['against_the_claim']}")
-                                            _ks = _vdict.get("key_source", "")
-                                            if _ks:
-                                                st.caption(f"**{L('sources')}:** {_ks}")
-
-                                    # 4. Connections section
-                                    _responses_ss = st.session_state.get("responses", [])
-                                    if _responses_ss:
-                                        st.markdown("---")
-                                        _claim_lookup = {c["id"]: c for c in _tl_claims}
-                                        _responds_to_ids = [
-                                            r["responds_to_claim_id"] for r in _responses_ss
-                                            if r.get("from_claim_id") == _sel_id
-                                        ]
-                                        _challenged_by_ids = [
-                                            r["from_claim_id"] for r in _responses_ss
-                                            if (r.get("responds_to_claim_id") == _sel_id
-                                                and r.get("relationship") in
-                                                ("refutes", "undercuts", "weakens"))
-                                        ]
-                                        _supported_by_ids = [
-                                            r["from_claim_id"] for r in _responses_ss
-                                            if (r.get("responds_to_claim_id") == _sel_id
-                                                and r.get("relationship") in
-                                                ("supports", "concedes"))
-                                        ]
-                                        st.markdown(
-                                            f"**{L('card_connections')}** — "
-                                            f"{L('card_responds_to')} **{len(_responds_to_ids)}** · "
-                                            f"{L('card_challenged_by')} **{len(_challenged_by_ids)}** · "
-                                            f"{L('card_supported_by')} **{len(_supported_by_ids)}**",
-                                            unsafe_allow_html=True,
-                                        )
-                                        for _c_label, _c_ids in [
-                                            (L("card_responds_to"),   _responds_to_ids),
-                                            (L("card_challenged_by"), _challenged_by_ids),
-                                            (L("card_supported_by"),  _supported_by_ids),
-                                        ]:
-                                            if _c_ids:
-                                                _c_items = []
-                                                for _cid2 in _c_ids:
-                                                    _cc = _claim_lookup.get(_cid2)
-                                                    if _cc:
-                                                        _cc_spk = speaker_names_an.get(
-                                                            _cc["speaker"], _cc["speaker"]
-                                                        )
-                                                        _cc_txt = (_cc["text"][:70]
-                                                                   + ("…" if len(_cc["text"]) > 70 else ""))
-                                                        _c_items.append(f"**{_cc_spk}:** {_cc_txt}")
-                                                if _c_items:
-                                                    st.markdown(
-                                                        f"<small><em>{_c_label}:</em></small>",
-                                                        unsafe_allow_html=True,
-                                                    )
-                                                    for _ci in _c_items:
-                                                        st.markdown(f"- {_ci}")
-
-                                    # 5. Rhetoric section
-                                    _rhetoric_ss = st.session_state.get("rhetoric", [])
-                                    if _rhetoric_ss:
-                                        _rh_entry = next(
-                                            (r for r in _rhetoric_ss
-                                             if (r.get("speaker") == _sel_c["speaker"]
-                                                 and r.get("start_ms", 0) <= _sel_ms
-                                                 and r.get("end_ms", _sel_ms + 1) >= _sel_ms)),
-                                            None,
-                                        )
-                                        if _rh_entry:
-                                            _rh_falls   = _rh_entry.get("fallacies", [])
-                                            _rh_devices = _rh_entry.get("rhetorical_devices", [])
-                                            if _rh_falls or _rh_devices:
-                                                st.markdown("---")
-                                                st.markdown(f"**{L('card_rhetoric')}**")
-                                                st.caption(L("card_rhetoric_scope"))
-                                                if _rh_falls:
-                                                    st.markdown(f"*{L('rhetoric_fallacies')}*")
-                                                    for _f in _rh_falls:
-                                                        _f_lbl   = _f.get("label", _f.get("type", ""))
-                                                        _f_quote = _f.get("quote", "")
-                                                        _f_expl  = _f.get("explanation", "")
-                                                        _f_line  = f"- **{_f_lbl}**"
-                                                        if _f_quote:
-                                                            _f_line += f' — "{_f_quote}"'
-                                                        if _f_expl:
-                                                            _f_line += f": {_f_expl}"
-                                                        st.markdown(_f_line)
-                                                if _rh_devices:
-                                                    st.markdown(f"*{L('rhetoric_devices')}*")
-                                                    for _d in _rh_devices:
-                                                        _d_lbl   = _d.get("label", _d.get("type", ""))
-                                                        _d_quote = _d.get("quote", "")
-                                                        _d_line  = f"- **{_d_lbl}**"
-                                                        if _d_quote:
-                                                            _d_line += f' — "{_d_quote}"'
-                                                        st.markdown(_d_line)
-
-                                    # 5.5 Mini neighbourhood map
-                                    if _responses_ss:
-                                        st.markdown("---")
-                                        _mm_key  = f"minimap_open_{_sel_id}"
-                                        _mm_open = st.session_state.get(_mm_key, False)
-
-                                        # Collect all claim IDs directly connected to sel_id
-                                        _nb_ids: set[str] = set()
-                                        for _r in _responses_ss:
-                                            if _r.get("from_claim_id") == _sel_id:
-                                                _nb_ids.add(_r["responds_to_claim_id"])
-                                            if _r.get("responds_to_claim_id") == _sel_id:
-                                                _nb_ids.add(_r["from_claim_id"])
-
-                                        if not _nb_ids:
-                                            st.caption(L("card_no_connections"))
-                                        else:
-                                            _mm_btn_lbl = (
-                                                L("card_hide_minimap")
-                                                if _mm_open else
-                                                L("card_show_minimap")
-                                            )
-                                            if st.button(_mm_btn_lbl, key=f"mm_btn_{_sel_id}"):
-                                                st.session_state[_mm_key] = not _mm_open
-                                                st.rerun()
-                                            if _mm_open:
-                                                _mm_ids    = {_sel_id} | _nb_ids
-                                                _mm_claims = [
-                                                    c for c in _tl_claims
-                                                    if c["id"] in _mm_ids
-                                                ]
-                                                _mm_resp   = [
-                                                    r for r in _responses_ss
-                                                    if (r.get("from_claim_id") in _mm_ids
-                                                        and r.get("responds_to_claim_id") in _mm_ids)
-                                                ]
-                                                _mm_html = build_graph_html(
-                                                    _mm_claims,
-                                                    _mm_resp,
-                                                    speaker_names_an,
-                                                    survivability=st.session_state.get("survivability"),
-                                                    verdicts=st.session_state.get("verdicts"),
-                                                )
-                                                if _mm_html:
-                                                    components.html(
-                                                        _mm_html, height=320, scrolling=False
-                                                    )
-
-                                    # 6. Thread context expander
-                                    _co_claims = [
-                                        c for c in _tl_claims
-                                        if c.get("thread_id") == _sel_tid and c["id"] != _sel_cid
-                                    ]
-                                    if _co_claims:
-                                        _co_sorted = sorted(
-                                            _co_claims, key=lambda c: c.get("start_ms", 0)
-                                        )
-                                        _rows = []
-                                        for _co in _co_sorted:
-                                            _co_spk = speaker_names_an.get(
-                                                _co["speaker"], _co["speaker"]
-                                            )
-                                            _co_ts = ms_to_ts(_co.get("start_ms", 0))
-                                            _rows.append(
-                                                f"[{_co_ts}] **{_co_spk}** — {_co['text'][:90]}"
-                                                + ("…" if len(_co["text"]) > 90 else "")
-                                            )
-                                        with st.expander(
-                                            f"Other claims in this thread ({len(_co_claims)})"
-                                        ):
-                                            for _row in _rows:
-                                                st.markdown(f"- {_row}")
+                        with _tl_left:
+                            if _tl_html:
+                                _tl_h = len(_tl_threads) * 33 + 82
+                                components.html(_tl_html, height=_tl_h, scrolling=False)
 
                 # ── Fact-Check sub-tab ────────────────────────────────────────
                 with subtab_fc:

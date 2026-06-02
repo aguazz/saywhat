@@ -185,7 +185,7 @@ LABELS: `tl_color_speakers`, `tl_color_stage`, `tl_color_type`, `tl_color_label`
 
 ---
 
-### Prompt B — 60/40 split: timeline left, card right ◻
+### Prompt B — 60/40 split: timeline left, card right ✓
 
 Wrap the entire Thread Timeline content (toggle, legend, visualization, scorecards) in a
 `st.columns([3, 2])` split. Left column takes everything currently in the sub-tab. Right
