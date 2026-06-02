@@ -2919,21 +2919,20 @@ def main() -> None:
                             st.caption(L("motion_caption").format(motion=_motion_tl))
 
                         # ── Click listener (st_javascript → session_state) ─────
-                        # The version counter in the JS comment forces streamlit-javascript
-                        # to re-evaluate the expression (and re-register the listener) after
-                        # each click, enabling selection of a different claim.
+                        # Key is versioned so each click cycle mounts a fresh component
+                        # with no cached value, preventing stale-value rerun loops.
                         _tl_ver = st.session_state.get("_tl_listen_ver", 0)
                         _js_click = st_javascript(
-                            f"""/* v{_tl_ver} */ new Promise(resolve => {{
-                                function handler(e) {{
-                                    if (e.data && e.data.type === 'tl_claim_select') {{
+                            """new Promise(resolve => {
+                                function handler(e) {
+                                    if (e.data && e.data.type === 'tl_claim_select') {
                                         window.parent.removeEventListener('message', handler);
                                         resolve(e.data.claim_id);
-                                    }}
-                                }}
+                                    }
+                                }
                                 window.parent.addEventListener('message', handler);
-                            }})""",
-                            key="tl_click_listener",
+                            })""",
+                            key=f"tl_click_{_tl_ver}",
                         )
                         if _js_click and isinstance(_js_click, str) and _js_click.strip():
                             st.session_state["tl_selected_claim"] = _js_click.strip()
