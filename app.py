@@ -1674,6 +1674,74 @@ def main() -> None:
                 {**t, "utterances": merged_utterances}, speaker_names
             )
 
+            # ── Clean transcript (optional) ──────────────────────────────
+            with st.expander("🧹 Clean transcript (optional)", expanded=False):
+                st.caption(
+                    "Detect and remove intro, outro, sponsor reads, and mid-roll ads "
+                    "before running analysis. After reviewing, download the cleaned "
+                    "transcript and re-upload it — the app will use only those utterances."
+                )
+                if st.button(
+                    "Detect non-debate segments",
+                    key="btn_detect_oos",
+                    disabled=not anthropic_key,
+                ):
+                    with st.spinner("Scanning transcript for non-debate content…"):
+                        out_indices = detect_out_of_scope_utterances(
+                            utterances,
+                            motion=st.session_state.get("motion", ""),
+                            api_key=anthropic_key,
+                        )
+                    st.session_state["excluded_utterance_indices"] = set(out_indices)
+                    if out_indices:
+                        st.success(
+                            f"Found {len(out_indices)} utterance(s) to exclude. "
+                            "Review below, then download the cleaned transcript."
+                        )
+                    else:
+                        st.info("No non-debate segments detected.")
+                if not anthropic_key:
+                    st.caption("Add ANTHROPIC_API_KEY to enable detection.")
+
+                excluded = st.session_state.get("excluded_utterance_indices", set())
+                if excluded:
+                    for idx in sorted(excluded):
+                        if idx < len(utterances):
+                            u = utterances[idx]
+                            spk_name = (
+                                speaker_names.get(u["speaker"]) or u["speaker"]
+                            )
+                            st.markdown(
+                                f"**[{idx}] {spk_name}:** {u['text'][:150]}…"
+                            )
+
+                    cleaned_utterances = [
+                        u for i, u in enumerate(merged_utterances)
+                        if i not in excluded
+                    ]
+                    cleaned_export = {
+                        **json_export,
+                        "utterances": cleaned_utterances,
+                        "_cleaned": True,
+                    }
+
+                    col_clear, col_dl_clean = st.columns(2)
+                    with col_clear:
+                        if st.button("Clear exclusions", key="btn_clear_oos"):
+                            st.session_state["excluded_utterance_indices"] = set()
+                            st.rerun()
+                    with col_dl_clean:
+                        st.download_button(
+                            label     = "⬇ Download cleaned transcript",
+                            data      = json.dumps(
+                                cleaned_export, indent=2, ensure_ascii=False
+                            ),
+                            file_name = f"transcript_{slug}_{dt_str}_cleaned.json",
+                            mime      = "application/json",
+                            use_container_width=True,
+                            key       = "btn_dl_cleaned",
+                        )
+
             col1, col2 = st.columns(2)
             with col1:
                 st.download_button(
@@ -1767,32 +1835,6 @@ def main() -> None:
                         st.rerun()
             elif _sugg_list == [] and "motion_suggestions" in st.session_state:
                 st.error(L("motion_suggestions_err"))
-
-            # ── Clean transcript (optional) ───────────────────────────────────
-            with st.expander("🧹 Clean transcript (optional)", expanded=False):
-                st.caption("Detect and remove intro, outro, sponsor reads, and mid-roll ads before running analysis.")
-                if st.button("Detect non-debate segments"):
-                    with st.spinner("Scanning transcript for non-debate content…"):
-                        out_indices = detect_out_of_scope_utterances(
-                            utterances_an,
-                            motion=st.session_state.get("motion", ""),
-                            api_key=anthropic_key,
-                        )
-                    st.session_state["excluded_utterance_indices"] = set(out_indices)
-                    if out_indices:
-                        st.success(f"Found {len(out_indices)} utterance(s) to exclude. Review below.")
-                    else:
-                        st.info("No non-debate segments detected.")
-
-                excluded = st.session_state.get("excluded_utterance_indices", set())
-                if excluded:
-                    for idx in sorted(excluded):
-                        if idx < len(utterances_an):
-                            u = utterances_an[idx]
-                            st.markdown(f"**[{idx}] {u['speaker']}:** {u['text'][:120]}…")
-                    if st.button("Clear exclusions"):
-                        st.session_state["excluded_utterance_indices"] = set()
-                        st.rerun()
 
             # ── Run Analysis button ────────────────────────────────────────────
             if not anthropic_key:
