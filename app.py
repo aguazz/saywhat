@@ -722,6 +722,28 @@ LABELS = {
         ),
     },
     # ── JSON import ──────────────────────────────────────────────────────────
+    # ── Bulk session loader ──────────────────────────────────────────────────
+    "bulk_upload_heading": {
+        "English": "⬆ Load full session from files",
+        "Español": "⬆ Cargar sesión completa desde archivos",
+    },
+    "bulk_upload_label": {
+        "English": "Select all session JSON files (transcript, analysis, fact-check, rhetoric, responses, speaker report)",
+        "Español": "Selecciona todos los archivos JSON de sesión (transcripción, análisis, verificación, retórica, respuestas, informe)",
+    },
+    "bulk_load_btn":    {"English": "Load all",  "Español": "Cargar todo"},
+    "bulk_loaded_ok":   {
+        "English": "Loaded: {items}",
+        "Español": "Cargado: {items}",
+    },
+    "bulk_unknown_files": {
+        "English": "Unrecognized files (skipped): {files}",
+        "Español": "Archivos no reconocidos (omitidos): {files}",
+    },
+    "bulk_nothing": {
+        "English": "No recognized session data found in the uploaded files.",
+        "Español": "No se encontraron datos de sesión reconocibles en los archivos subidos.",
+    },
     "upload_json_label":   {"English": "Upload saved transcript JSON",
                             "Español": "Subir JSON de transcripción guardado"},
     "upload_json_help":    {"English": "Exported from Transcript tab → ⬇ Download JSON",
@@ -1224,6 +1246,108 @@ def main() -> None:
         st.caption(
             LABELS["file_info"][lang].format(name=uploaded.name, size=f"{size_mb:.1f} MB")
         )
+
+    # ── Bulk session loader ──────────────────────────────────────────────────
+    st.markdown(
+        f'<p style="text-align:center;color:#888;margin:4px 0">{L("or")}</p>',
+        unsafe_allow_html=True,
+    )
+    with st.expander(L("bulk_upload_heading"), expanded=False):
+        _bulk_files = st.file_uploader(
+            L("bulk_upload_label"),
+            type=["json"],
+            accept_multiple_files=True,
+            key="bulk_json_upload",
+        )
+        if _bulk_files and st.button(L("bulk_load_btn"), key="btn_bulk_load", type="primary"):
+            _batch: dict = {}
+            _unrecognized: list = []
+            for _bf in _bulk_files:
+                try:
+                    _bd = json.loads(_bf.read())
+                except Exception:
+                    _unrecognized.append(_bf.name)
+                    continue
+
+                _recognized = False
+                # Transcript
+                if "utterances" in _bd:
+                    _batch["transcript"] = _bd
+                    _recognized = True
+                # Analysis bundle (may also embed verdicts / speaker_report)
+                if isinstance(_bd.get("analysis", {}).get("claims"), list):
+                    _batch["analysis"] = _bd["analysis"]
+                    if isinstance(_bd.get("verdicts"), dict):
+                        _batch.setdefault("verdicts", _bd["verdicts"])
+                    if isinstance(_bd.get("speaker_report"), dict):
+                        _batch.setdefault("speaker_report", _bd["speaker_report"])
+                    _recognized = True
+                # Stand-alone verdicts
+                if isinstance(_bd.get("verdicts"), dict) and "analysis" not in _bd:
+                    _batch["verdicts"] = _bd["verdicts"]
+                    _recognized = True
+                # Responses
+                if isinstance(_bd.get("responses"), list):
+                    _batch["responses"] = _bd["responses"]
+                    _recognized = True
+                # Rhetoric (may include stages)
+                if isinstance(_bd.get("rhetoric"), list):
+                    _batch["rhetoric"] = _bd["rhetoric"]
+                    if isinstance(_bd.get("stages"), list):
+                        _batch["stages"] = _bd["stages"]
+                    _recognized = True
+                # Stand-alone speaker report
+                if isinstance(_bd.get("speaker_report"), dict) and "analysis" not in _bd:
+                    _batch["speaker_report"] = _bd["speaker_report"]
+                    _recognized = True
+
+                if not _recognized:
+                    _unrecognized.append(_bf.name)
+
+            # Apply batch in dependency order
+            if "transcript" in _batch:
+                _tx = _batch["transcript"]
+                for _sid, _name in _tx.get("_speaker_names", {}).items():
+                    if _name:
+                        st.session_state[f"speaker_name_{_sid}"] = _name
+                for _sid, _tgt in _tx.get("_speaker_merges", {}).items():
+                    st.session_state[f"speaker_merge_{_sid}"] = _tgt
+                st.session_state["transcript"] = _tx
+                # Clear stale data only when there is no fresh analysis in batch
+                if "analysis" not in _batch:
+                    for _k in ("analysis", "verdicts", "responses", "rhetoric",
+                               "speaker_report", "stages", "survivability"):
+                        st.session_state.pop(_k, None)
+
+            if "analysis" in _batch:
+                st.session_state["analysis"] = _batch["analysis"]
+            if "verdicts" in _batch:
+                st.session_state["verdicts"] = _batch["verdicts"]
+            if "responses" in _batch:
+                _resp_b = _batch["responses"]
+                st.session_state["responses"] = _resp_b
+                _an_claims_b = (
+                    _batch.get("analysis", {}).get("claims")
+                    or st.session_state.get("analysis", {}).get("claims", [])
+                )
+                st.session_state["survivability"] = compute_grounded_extension(
+                    _an_claims_b, _resp_b
+                )
+            if "rhetoric" in _batch:
+                st.session_state["rhetoric"] = _batch["rhetoric"]
+            if "stages" in _batch:
+                st.session_state["stages"] = _batch["stages"]
+            if "speaker_report" in _batch:
+                st.session_state["speaker_report"] = _batch["speaker_report"]
+
+            _loaded_names = [k for k in _batch if k != "stages"]
+            if _loaded_names:
+                st.success(L("bulk_loaded_ok").format(items=", ".join(_loaded_names)))
+                if _unrecognized:
+                    st.warning(L("bulk_unknown_files").format(files=", ".join(_unrecognized)))
+                st.rerun()
+            else:
+                st.error(L("bulk_nothing"))
 
     # ── Transcript JSON import ───────────────────────────────────────────────
     st.markdown(
