@@ -367,7 +367,7 @@ LABELS = {
     "fc_beyond":      {"English": "Beyond scope",         "Español": "Fuera de alcance"},
     "fc_kb_col":      {"English": "Basis",                "Español": "Base"},
     "fc_sources_col": {"English": "Sources",              "Español": "Fuentes"},
-    "fc_thread_col":  {"English": "Topic",                "Español": "Tema"},
+    "fc_thread_col":  {"English": "Thread",               "Español": "Hilo"},
     "fc_conf_help": {
         "English": (
             "How clearly the available evidence supported the verdict. "
@@ -389,6 +389,15 @@ LABELS = {
             "🧠 = veredicto basado en el conocimiento de Claude  ·  "
             "📚 = veredicto basado en fuentes recuperadas (Wikipedia / DuckDuckGo / Semantic Scholar)"
         ),
+    },
+    "fc_claim_detail_title": {"English": "Claim details",         "Español": "Detalles de la afirmación"},
+    "fc_kb_knowledge": {
+        "English": "🧠 Assessed using Claude's training knowledge — no retrieved source",
+        "Español": "🧠 Evaluado usando el conocimiento de Claude — sin fuente recuperada",
+    },
+    "fc_kb_sources": {
+        "English": "📚 Assessed using retrieved external sources",
+        "Español": "📚 Evaluado usando fuentes externas recuperadas",
     },
     # ── Detect Responses ─────────────────────────────────────────────────────
     "detect_responses":  {"English": "Detect Responses",
@@ -3435,100 +3444,132 @@ def main() -> None:
                         st.caption(L("fc_disclaimer"))
                         st.divider()
 
-                        # ── Overview table ──────────────────────────────────────
-                        _th = "padding:6px 8px;text-align:left;border-bottom:2px solid #dee2e6;font-size:0.85em"
-                        _td = "padding:5px 8px;border-bottom:1px solid #f0f0f0;font-size:0.82em;vertical-align:top"
-                        _conf_hdr = (
+                        # ── Per-claim dialog ────────────────────────────────────
+                        aid_fb = st.session_state.get("_analysis_id", "")
+
+                        @st.dialog(L("fc_claim_detail_title"), width="large")
+                        def _fc_detail_dlg(dlg_cid: str):
+                            _dc   = next((c for c in _fc_all_claims if c["id"] == dlg_cid), None)
+                            if not _dc:
+                                return
+                            _dvd   = _fc_verdicts.get(dlg_cid, {})
+                            _dvkey = _dvd.get("verdict", "")
+                            _dbg, _dlbl = _FC_VSTYLE.get(_dvkey, ("#e2e3e5", "—"))
+                            _dconf = int(_dvd.get("confidence", 0) * 100)
+                            _dkb   = _dvd.get("knowledge_based", False)
+                            _dspk  = speaker_names_an.get(_dc["speaker"], _dc["speaker"])
+                            _dthr  = _dc.get("thread_topic", _dc.get("thread_id", ""))
+                            st.markdown(f"**{_dc['text']}**")
+                            st.caption(
+                                f"{_dspk} · {ms_to_ts(_dc.get('start_ms', 0))}"
+                                + (f" · {_dthr}" if _dthr else "")
+                            )
+                            st.caption(L("fc_kb_knowledge") if _dkb else L("fc_kb_sources"))
+                            st.markdown("---")
+                            st.markdown(
+                                f'<span style="background:{_dbg};border-radius:4px;'
+                                f'padding:3px 10px;font-size:0.88em">{_dlbl}</span>',
+                                unsafe_allow_html=True,
+                            )
+                            st.progress(_dconf, text=f"Confidence: {_dconf}%")
+                            st.markdown(_dvd.get("explanation", ""))
+                            if _dvkey == "contested":
+                                if _dvd.get("for_the_claim"):
+                                    st.markdown(f"**{L('in_favour')}** {_dvd['for_the_claim']}")
+                                if _dvd.get("against_the_claim"):
+                                    st.markdown(f"**{L('against')}** {_dvd['against_the_claim']}")
+                            _dks = _dvd.get("key_source", "")
+                            if _dks:
+                                st.caption(f"**{L('sources')}:** {_dks}")
+                            _dsrcs = _dvd.get("all_sources") or []
+                            if _dsrcs:
+                                st.markdown(f"**{L('sources')}**")
+                                for _ds in _dsrcs:
+                                    _dst = _ds.get("title", "Source") if isinstance(_ds, dict) else str(_ds)
+                                    _dsu = (_ds.get("url", "") or "") if isinstance(_ds, dict) else ""
+                                    st.markdown(f"- [{_dst}]({_dsu})" if _dsu else f"- {_dst}")
+                            # Feedback
+                            _dfbk = f"feedback_open_{dlg_cid}"
+                            if not st.session_state.get(_dfbk):
+                                if st.button(f"👎 {L('report_error')}", key=f"dlg_fb_{dlg_cid}"):
+                                    st.session_state[_dfbk] = True
+                                    st.rerun()
+                            else:
+                                with st.form(key=f"dlg_fb_form_{dlg_cid}"):
+                                    _dr = st.radio(
+                                        L("feedback_question"),
+                                        [L("fb_incorrect"), L("fb_misleading"), L("fb_incomplete")],
+                                        horizontal=True,
+                                    )
+                                    _dn = st.text_input(L("feedback_note"), max_chars=300)
+                                    if st.form_submit_button(L("feedback_submit")):
+                                        try:
+                                            save_feedback(dlg_cid, aid_fb, _dr, _dn)
+                                        except Exception:
+                                            pass
+                                        st.session_state[_dfbk] = False
+                                        st.success(L("feedback_thanks"))
+
+                        # ── Table with → buttons ─────────────────────────────────
+                        _FC_CW = [1.2, 2.5, 6, 2, 0.9, 0.6, 0.6, 0.6]
+                        _conf_abbr = (
                             f'<abbr title="{L("fc_conf_help")}" '
                             f'style="cursor:help;text-decoration:underline dotted #888">Conf.</abbr>'
                         )
-                        _fc_hdrs = [
-                            L("col_speaker"), L("fc_thread_col"), L("col_claim"),
-                            L("col_verdict"), _conf_hdr, L("fc_kb_col"), L("fc_sources_col"),
-                        ]
-                        _fc_hdr_html = "".join(f"<th style='{_th}'>{h}</th>" for h in _fc_hdrs)
-                        _fc_rows = ""
+                        # Header row
+                        _fch = st.columns(_FC_CW)
+                        _fch[0].markdown(f"**{L('col_speaker')}**")
+                        _fch[1].markdown(f"**{L('fc_thread_col')}**")
+                        _fch[2].markdown(f"**{L('col_claim')}**")
+                        _fch[3].markdown(f"**{L('col_verdict')}**")
+                        _fch[4].markdown(_conf_abbr, unsafe_allow_html=True)
+                        _fch[5].markdown(f"**{L('fc_kb_col')}**")
+                        _fch[6].markdown(f"**{L('fc_sources_col')}**")
+                        st.markdown(
+                            '<hr style="margin:4px 0 8px;border:none;border-top:2px solid #dee2e6">',
+                            unsafe_allow_html=True,
+                        )
+                        # Data rows
                         for _c in _fc_checked_sorted:
-                            _vd      = _fc_verdicts[_c["id"]]
-                            _vkey    = _vd.get("verdict", "")
+                            _vd       = _fc_verdicts[_c["id"]]
+                            _vkey     = _vd.get("verdict", "")
                             _bg, _lbl = _FC_VSTYLE.get(_vkey, ("#e2e3e5", "—"))
-                            _conf    = int(_vd.get("confidence", 0) * 100)
-                            _kb      = _vd.get("knowledge_based", False)
-                            _n_src   = len(_vd.get("all_sources") or [])
-                            _spknm   = speaker_names_an.get(_c["speaker"], _c["speaker"])
-                            _thread  = _c.get("thread_topic", _c.get("thread_id", "—"))
-                            _thread_s = (_thread[:35] + "…") if len(_thread) > 35 else _thread
-                            _short   = (_c["text"][:90] + "…") if len(_c["text"]) > 90 else _c["text"]
-                            _vbadge  = (
+                            _conf     = int(_vd.get("confidence", 0) * 100)
+                            _kb       = _vd.get("knowledge_based", False)
+                            _n_src    = len(_vd.get("all_sources") or [])
+                            _spknm    = speaker_names_an.get(_c["speaker"], _c["speaker"])
+                            _thread   = _c.get("thread_topic", _c.get("thread_id", "—"))
+                            _thread_s = (_thread[:30] + "…") if len(_thread) > 30 else _thread
+                            _short    = (_c["text"][:85] + "…") if len(_c["text"]) > 85 else _c["text"]
+                            _vbadge   = (
                                 f'<span style="background:{_bg};border-radius:4px;'
                                 f'padding:2px 6px;font-size:0.8em;white-space:nowrap">{_lbl}</span>'
                             )
-                            _kb_cell = "🧠" if _kb else ("📚" if _n_src > 0 else "—")
-                            _src_cell = str(_n_src) if _n_src > 0 else "—"
-                            _fc_rows += (
-                                f"<tr>"
-                                f"<td style='{_td}'>{_spknm}</td>"
-                                f"<td style='{_td};color:#888'>{_thread_s}</td>"
-                                f"<td style='{_td}'>{_short}</td>"
-                                f"<td style='{_td}'>{_vbadge}</td>"
-                                f"<td style='{_td}'>{_conf}%</td>"
-                                f"<td style='{_td};text-align:center'>{_kb_cell}</td>"
-                                f"<td style='{_td};text-align:center'>{_src_cell}</td>"
-                                f"</tr>"
+                            _kb_icon  = "🧠" if _kb else ("📚" if _n_src > 0 else "—")
+                            _src_lbl  = str(_n_src) if _n_src > 0 else "—"
+                            _fcr = st.columns(_FC_CW)
+                            _fcr[0].markdown(f'<small>{_spknm}</small>', unsafe_allow_html=True)
+                            _fcr[1].markdown(
+                                f'<small style="color:#888">{_thread_s}</small>',
+                                unsafe_allow_html=True,
                             )
-                        st.markdown(
-                            f"<div style='overflow-x:auto'>"
-                            f"<table style='width:100%;border-collapse:collapse'>"
-                            f"<thead><tr>{_fc_hdr_html}</tr></thead>"
-                            f"<tbody>{_fc_rows}</tbody></table></div>",
-                            unsafe_allow_html=True,
-                        )
-
-                        st.divider()
-
-                        # ── Per-claim detail expanders ──────────────────────────
-                        for _c in _fc_checked_sorted:
-                            _vd     = _fc_verdicts[_c["id"]]
-                            _vkey   = _vd.get("verdict", "")
-                            _bg, _lbl = _FC_VSTYLE.get(_vkey, ("#e2e3e5", "—"))
-                            _conf   = int(_vd.get("confidence", 0) * 100)
-                            _kb     = _vd.get("knowledge_based", False)
-                            _spknm  = speaker_names_an.get(_c["speaker"], _c["speaker"])
-                            _short  = (_c["text"][:55] + "…") if len(_c["text"]) > 55 else _c["text"]
-                            with st.expander(f"[{ms_to_ts(_c.get('start_ms', 0))}] {_spknm} — {_short}"):
-                                st.markdown(f"**{_c['text']}**")
-                                # Knowledge-basis indicator
-                                if _kb:
-                                    st.caption("🧠 Assessed using Claude's training knowledge — no retrieved source")
-                                else:
-                                    st.caption("📚 Assessed using retrieved external sources")
-                                st.markdown("---")
-                                # Verdict badge + confidence
-                                st.markdown(
-                                    f'<span style="background:{_bg};border-radius:4px;'
-                                    f'padding:3px 10px;font-size:0.88em">{_lbl}</span>',
-                                    unsafe_allow_html=True,
-                                )
-                                st.progress(_conf, text=f"Confidence: {_conf}%")
-                                st.markdown(_vd.get("explanation", ""))
-                                # For / against (contested)
-                                if _vkey == "contested":
-                                    if _vd.get("for_the_claim"):
-                                        st.markdown(f"**{L('in_favour')}** {_vd['for_the_claim']}")
-                                    if _vd.get("against_the_claim"):
-                                        st.markdown(f"**{L('against')}** {_vd['against_the_claim']}")
-                                # Key source — always shown when present
-                                _ks = _vd.get("key_source", "")
-                                if _ks:
-                                    st.caption(f"**Key source:** {_ks}")
-                                # Retrieved sources
-                                _srcs = _vd.get("all_sources") or []
-                                if _srcs:
-                                    st.markdown(f"**{L('sources')}**")
-                                    for _s in _srcs:
-                                        _st = _s.get("title", "Source") if isinstance(_s, dict) else str(_s)
-                                        _su = (_s.get("url", "") or "") if isinstance(_s, dict) else ""
-                                        st.markdown(f"- [{_st}]({_su})" if _su else f"- {_st}")
+                            _fcr[2].markdown(f'<small>{_short}</small>', unsafe_allow_html=True)
+                            _fcr[3].markdown(_vbadge, unsafe_allow_html=True)
+                            _fcr[4].markdown(f'<small>{_conf}%</small>', unsafe_allow_html=True)
+                            _fcr[5].markdown(
+                                f'<small style="display:block;text-align:center">{_kb_icon}</small>',
+                                unsafe_allow_html=True,
+                            )
+                            _fcr[6].markdown(
+                                f'<small style="display:block;text-align:center">{_src_lbl}</small>',
+                                unsafe_allow_html=True,
+                            )
+                            if _fcr[7].button("→", key=f"fc_det_{_c['id']}", use_container_width=True):
+                                _fc_detail_dlg(_c["id"])
+                            st.markdown(
+                                '<hr style="margin:2px 0;border:none;border-top:1px solid #f0f0f0">',
+                                unsafe_allow_html=True,
+                            )
 
                 # ── Argument Map sub-tab ───────────────────────────────────────
                 with subtab_map:
