@@ -33,7 +33,7 @@ fact-checks each speaker's claims against peer-reviewed scientific literature.
 - Generates a plain-language narrative summary of each speaker's debate performance
 - **Find / Filter Claims**: 12-dimension filter panel (speaker, type, thread, text search, verdict, argument status, fallacies, rhetorical devices, connections, checkable, certainty, stance) with live cross-surface sync to the Argument Map and Thread Timeline
 - **Debate scorecard banner**: 5 debate-level metrics (response density, evasion rate, dialectical completeness, thread coverage, concessions) shown once the Speaker Report is generated
-- **Enriched claim card**: clicking any claim in the Thread Timeline shows a full card — type, dialectical stage, verdict, connections with linked claim texts, rhetorical devices and fallacies, survivability status, and an inline mini argument map of the claim's direct neighbourhood
+- **Thread Timeline — ultimate debate visualization**: color-code claim bars by speaker, dialectical stage, or claim type via a three-button toggle; click any bar to open a full claim card in a right-side panel (60/40 split) showing speaker, time, thread, dialectical stage, AI-generated argumentative role sentence, stance on the motion, claim type, survivability, full fact-check verdict, fallacies and rhetorical devices, connected claims, and an inline neighbourhood argument map; an "Open in full map" button loads the claim's neighbourhood into the full Argument Map tab
 - **Thread scorecards**: per-thread depth, speaker balance, survival rate, verdict rate, and response-edge count, accessible as a collapsed section in the Thread Timeline tab
 
 See [docs/how-it-works.md](docs/how-it-works.md) for a full explanation of how the analysis works.
