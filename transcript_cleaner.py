@@ -5,11 +5,18 @@ import anthropic
 
 logger = logging.getLogger(__name__)
 
-# Characters shown from the start and end of each long utterance.
-# Showing both ends lets the model see embedded intros/sponsors that begin
-# after a speaker finishes a debate point mid-utterance.
-_HEAD_CHARS = 300
-_TAIL_CHARS = 200
+# ── Tuning knobs ─────────────────────────────────────────────────────────────
+
+# Number of utterances sent per chunk in the local scan (Phase 1).
+# Smaller = sharper attention but more API calls. 20 is a good balance.
+_CHUNK_SIZE = 20
+
+# Characters kept from each end of a long utterance in the global scan (Phase 2).
+# Only used for the global/teaser pass where we need the whole transcript visible.
+_HEAD_CHARS = 400
+_TAIL_CHARS = 250
+
+# ── Shared system prompt ──────────────────────────────────────────────────────
 
 _SYSTEM = (
     "You are reviewing a debate transcript to identify utterances that contain "
@@ -19,7 +26,7 @@ _SYSTEM = (
     "non-debate content. This happens when a host finishes a debate point and then "
     "pivots to a podcast intro, a sponsor read, or an outro — all within the same "
     "turn. You MUST flag such utterances even when they also contain debate content. "
-    "Look at the FULL text of each utterance, not just its opening words.\n\n"
+    "Read the COMPLETE text of each utterance carefully, including the middle.\n\n"
 
     "FLAG utterances that contain ANY of the following non-debate elements:\n\n"
 
@@ -73,42 +80,47 @@ _SYSTEM = (
     "Return only valid JSON. No markdown fences."
 )
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _render_utterance(i: int, u: dict) -> str:
+def _render_full(i: int, u: dict) -> str:
+    """Render utterance with FULL text — used in the chunked local scan."""
+    return f"[{i}] {u.get('speaker', '?')}: {u.get('text', '').strip()}"
+
+
+def _render_truncated(i: int, u: dict) -> str:
     """
-    Render one utterance for the detection prompt.
-
-    For long utterances we show the head and the tail so the model can see
-    content that is embedded mid-turn (e.g. a sponsor read that starts after
-    a debate point within the same utterance).
+    Render utterance with head+tail truncation — used in the global scan
+    so the full transcript fits in one prompt for cross-utterance comparison.
     """
     text = u.get("text", "").strip()
     speaker = u.get("speaker", "?")
-
     if len(text) <= _HEAD_CHARS + _TAIL_CHARS:
         return f"[{i}] {speaker}: {text}"
-
-    head = text[:_HEAD_CHARS]
-    tail = text[-_TAIL_CHARS:]
-    return f"[{i}] {speaker}: {head} […] {tail}"
+    return f"[{i}] {speaker}: {text[:_HEAD_CHARS]} […] {text[-_TAIL_CHARS:]}"
 
 
-def detect_out_of_scope_utterances(
-    utterances: list[dict],
-    motion: str = "",
-    api_key: str = "",
-) -> list[dict]:
-    """
-    Returns a list of dicts: [{"index": int, "reason": str}, …]
-    for every utterance that should be excluded from analysis.
-    """
-    transcript_text = "\n".join(
-        _render_utterance(i, u) for i, u in enumerate(utterances)
-    )
-    motion_line = f"Debate topic: {motion}\n" if motion.strip() else ""
-    user_msg = f"{motion_line}Transcript (index: speaker: text):\n{transcript_text}"
+def _parse_response(raw: str) -> list[dict]:
+    """Parse a model JSON response into a list of {index, reason} dicts."""
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError("expected a JSON object")
+    items = data.get("out_of_scope", [])
+    if not isinstance(items, list):
+        raise ValueError("out_of_scope must be a list")
+    result = []
+    for item in items:
+        if isinstance(item, dict) and isinstance(item.get("index"), (int, float)):
+            result.append({
+                "index":  int(item["index"]),
+                "reason": str(item.get("reason", "Non-debate segment")),
+            })
+        elif isinstance(item, (int, float)):
+            result.append({"index": int(item), "reason": "Non-debate segment"})
+    return result
 
-    client = anthropic.Anthropic(api_key=api_key)
+
+def _call_model(user_msg: str, client: anthropic.Anthropic) -> list[dict]:
+    """Make one detection call and return parsed results (empty list on failure)."""
     try:
         response = client.messages.create(
             model="claude-sonnet-4-6",
@@ -117,31 +129,68 @@ def detect_out_of_scope_utterances(
             messages=[{"role": "user", "content": user_msg}],
         )
         raw = response.content[0].text.strip()
+        return _parse_response(raw)
+    except json.JSONDecodeError as exc:
+        logger.warning("OOS JSON parse error: %s", exc)
     except Exception as exc:
-        logger.warning("Claude API error detecting out-of-scope utterances: %s", exc)
-        return []
+        logger.warning("OOS model call failed: %s", exc)
+    return []
 
-    try:
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("expected a JSON object")
-        items = data.get("out_of_scope", [])
-        if not isinstance(items, list):
-            raise ValueError("out_of_scope must be a list")
-        result = []
-        for item in items:
-            if isinstance(item, dict) and isinstance(item.get("index"), (int, float)):
-                result.append({
-                    "index":  int(item["index"]),
-                    "reason": str(item.get("reason", "Non-debate segment")),
-                })
-            elif isinstance(item, (int, float)):
-                # backward-compat: plain integer with no reason
-                result.append({"index": int(item), "reason": "Non-debate segment"})
-        return result
-    except Exception as exc:
-        logger.warning(
-            "JSON parse error detecting out-of-scope utterances: %s — raw: %.120s",
-            exc, raw,
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def detect_out_of_scope_utterances(
+    utterances: list[dict],
+    motion: str = "",
+    api_key: str = "",
+) -> list[dict]:
+    """
+    Two-phase robust detection of non-debate utterances.
+
+    Phase 1 — Chunked local scan (full text, no truncation):
+        Processes _CHUNK_SIZE utterances at a time with complete text.
+        Tight context window = sharp model attention = catches embedded
+        intros/sponsors that fall in the middle of long utterances.
+        Makes ceil(N / _CHUNK_SIZE) API calls.
+
+    Phase 2 — Global scan (head+tail truncation):
+        Sends the entire transcript in one call to catch repeated teaser
+        clips and patterns that require cross-utterance comparison.
+        Makes 1 API call.
+
+    Results from both phases are merged (Phase 1 reasons take priority).
+    Returns a list of {"index": int, "reason": str} dicts, sorted by index.
+    """
+    client = anthropic.Anthropic(api_key=api_key)
+    motion_line = f"Debate topic: {motion}\n" if motion.strip() else ""
+    found: dict[int, dict] = {}  # index → {index, reason}
+
+    # ── Phase 1: chunked local scan (full text) ───────────────────────────
+    for chunk_start in range(0, len(utterances), _CHUNK_SIZE):
+        chunk = utterances[chunk_start: chunk_start + _CHUNK_SIZE]
+        lines = "\n".join(
+            _render_full(chunk_start + j, u) for j, u in enumerate(chunk)
         )
-        return []
+        user_msg = (
+            f"{motion_line}"
+            f"Transcript chunk — indices {chunk_start} to "
+            f"{chunk_start + len(chunk) - 1} (full text, no truncation):\n"
+            f"{lines}"
+        )
+        for r in _call_model(user_msg, client):
+            found[r["index"]] = r  # Phase 1 results take priority
+
+    # ── Phase 2: global scan (truncated) for teaser/cross-utterance patterns
+    global_lines = "\n".join(
+        _render_truncated(i, u) for i, u in enumerate(utterances)
+    )
+    user_msg_global = (
+        f"{motion_line}"
+        f"Full transcript (long utterances truncated — focus on teaser clips "
+        f"and cross-utterance patterns):\n"
+        f"{global_lines}"
+    )
+    for r in _call_model(user_msg_global, client):
+        if r["index"] not in found:  # don't overwrite Phase 1 reasons
+            found[r["index"]] = r
+
+    return sorted(found.values(), key=lambda x: x["index"])
