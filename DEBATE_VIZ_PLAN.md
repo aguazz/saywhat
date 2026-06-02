@@ -223,7 +223,7 @@ LABELS: `card_purpose`, `card_role_loading`, `card_stance_label` (3 entries).
 
 ---
 
-### Prompt D — "Open in full map" button ◻
+### Prompt D — "Open in full map" button ✓
 
 In the claim card, after the inline mini-map, add:
 ```python

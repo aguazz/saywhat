@@ -435,6 +435,12 @@ LABELS = {
         "Español": "Detectando relaciones de respuesta entre hablantes…",
     },
     # ── Argument Map ─────────────────────────────────────────────────────────
+    "card_open_in_map":  {"English": "Open in full map",  "Español": "Abrir en mapa completo"},
+    "map_focus_caption": {
+        "English": "Showing neighbourhood from Thread Timeline.",
+        "Español": "Mostrando vecindad desde la línea de tiempo.",
+    },
+    "map_focus_clear":   {"English": "✕ Clear focus",    "Español": "✕ Quitar foco"},
     "run_analysis_first": {
         "English": "Run Analysis first to see the argument map.",
         "Español": "Ejecuta el análisis primero para ver el mapa de argumentos.",
@@ -1526,6 +1532,9 @@ def _render_claim_card(
                 )
                 if _mm_html:
                     components.html(_mm_html, height=250, scrolling=False)
+            if st.button(L("card_open_in_map"), key=f"open_map_{_sel_id}"):
+                st.session_state["map_focus_ids"] = {_sel_id} | _nb_ids
+                st.rerun()
 
     # 6. Thread context expander
     _co_claims = [
@@ -3990,6 +3999,17 @@ def main() -> None:
                             if _fc_filt is not None and len(_fc_filt) < len(_fc_all)
                             else None
                         )
+
+                        # Timeline neighbourhood focus overrides filter highlight
+                        _map_focus = st.session_state.get("map_focus_ids")
+                        if _map_focus:
+                            _hi_ids = _map_focus
+                            _mf_cap, _mf_btn = st.columns([5, 1])
+                            _mf_cap.caption(L("map_focus_caption"))
+                            with _mf_btn:
+                                if st.button(L("map_focus_clear"), key="map_focus_clear_btn"):
+                                    st.session_state.pop("map_focus_ids", None)
+                                    st.rerun()
 
                         graph_html = build_graph_html(
                             _fc_all,
