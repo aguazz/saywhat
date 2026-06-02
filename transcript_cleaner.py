@@ -59,8 +59,16 @@ _SYSTEM = (
     "- Brief mutual greetings between speakers that are part of the natural "
     "conversation flow (not a structured audience-facing monologue).\n\n"
 
-    "Return a JSON object:\n"
-    "{ \"out_of_scope\": [list of integer indices] }\n\n"
+    "Return a JSON object with this exact structure:\n"
+    "{\n"
+    "  \"out_of_scope\": [\n"
+    "    {\"index\": <integer>, \"reason\": \"<one concise sentence explaining why>\"},\n"
+    "    ...\n"
+    "  ]\n"
+    "}\n\n"
+    "The reason must name the specific category (e.g. 'Podcast intro', 'Sponsor read', "
+    "'Outro sign-off', 'Teaser clip') and quote a short phrase from the utterance that "
+    "triggered the detection.\n"
     "If nothing should be excluded, return { \"out_of_scope\": [] }. "
     "Return only valid JSON. No markdown fences."
 )
@@ -89,7 +97,11 @@ def detect_out_of_scope_utterances(
     utterances: list[dict],
     motion: str = "",
     api_key: str = "",
-) -> list[int]:
+) -> list[dict]:
+    """
+    Returns a list of dicts: [{"index": int, "reason": str}, …]
+    for every utterance that should be excluded from analysis.
+    """
     transcript_text = "\n".join(
         _render_utterance(i, u) for i, u in enumerate(utterances)
     )
@@ -113,10 +125,20 @@ def detect_out_of_scope_utterances(
         data = json.loads(raw)
         if not isinstance(data, dict):
             raise ValueError("expected a JSON object")
-        indices = data.get("out_of_scope", [])
-        if not isinstance(indices, list):
+        items = data.get("out_of_scope", [])
+        if not isinstance(items, list):
             raise ValueError("out_of_scope must be a list")
-        return [int(i) for i in indices if isinstance(i, (int, float))]
+        result = []
+        for item in items:
+            if isinstance(item, dict) and isinstance(item.get("index"), (int, float)):
+                result.append({
+                    "index":  int(item["index"]),
+                    "reason": str(item.get("reason", "Non-debate segment")),
+                })
+            elif isinstance(item, (int, float)):
+                # backward-compat: plain integer with no reason
+                result.append({"index": int(item), "reason": "Non-debate segment"})
+        return result
     except Exception as exc:
         logger.warning(
             "JSON parse error detecting out-of-scope utterances: %s — raw: %.120s",
