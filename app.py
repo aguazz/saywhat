@@ -2,6 +2,7 @@ import csv
 import io
 import json
 import os
+import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -1234,6 +1235,28 @@ def _suggest_motions(
     return [ln.strip() for ln in raw.splitlines() if ln.strip()][:5]
 
 
+def _rhetoric_matches_claim(item: dict, claim_text: str, threshold: float = 0.25) -> bool:
+    """Return True when the rhetoric item's quote has ≥threshold word overlap with claim_text.
+
+    Uses token-level overlap so near-matches (different inflections, common words) still
+    register.  A threshold of 0.25 means at least 1 in 4 quote words must appear in the
+    claim text — low enough to catch paraphrases, high enough to block items whose quote
+    shares no vocabulary with the claim at all.
+    """
+    quote = item.get("quote", "")
+    if not quote or not claim_text:
+        return False
+
+    def _tokens(s: str) -> set:
+        return set(re.sub(r"[^\w\s]", " ", s.lower()).split())
+
+    q_tokens = _tokens(quote)
+    c_tokens = _tokens(claim_text)
+    if not q_tokens:
+        return False
+    return len(q_tokens & c_tokens) / len(q_tokens) >= threshold
+
+
 def _get_claim_role(
     claim: dict,
     thread_topic: str,
@@ -1466,7 +1489,7 @@ def _render_claim_card(
                     for _ci in _c_items:
                         st.markdown(f"- {_ci}")
 
-    # 5. Rhetoric section
+    # 5. Rhetoric section — only items whose quote has ≥25% word overlap with this claim
     _rhetoric_ss = st.session_state.get("rhetoric", [])
     if _rhetoric_ss:
         _rh_entry = next(
@@ -1477,12 +1500,17 @@ def _render_claim_card(
             None,
         )
         if _rh_entry:
-            _rh_falls   = _rh_entry.get("fallacies", [])
-            _rh_devices = _rh_entry.get("rhetorical_devices", [])
+            _rh_falls   = [
+                f for f in _rh_entry.get("fallacies", [])
+                if _rhetoric_matches_claim(f, sel_c.get("text", ""))
+            ]
+            _rh_devices = [
+                d for d in _rh_entry.get("rhetorical_devices", [])
+                if _rhetoric_matches_claim(d, sel_c.get("text", ""))
+            ]
             if _rh_falls or _rh_devices:
                 st.markdown("---")
                 st.markdown(f"**{L('card_rhetoric')}**")
-                st.caption(L("card_rhetoric_scope"))
                 if _rh_falls:
                     st.markdown(f"*{L('rhetoric_fallacies')}*")
                     for _f in _rh_falls:
