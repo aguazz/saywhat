@@ -203,7 +203,7 @@ LABELS: `card_empty_hint` (1 entry).
 
 ---
 
-### Prompt C — "Purpose" section: role sentence + stance ◻
+### Prompt C — "Purpose" section: role sentence + stance ✓
 
 Add module-level function:
 ```python

@@ -372,6 +372,9 @@ LABELS = {
     "card_hide_minimap":  {"English": "Hide neighbourhood map", "Español": "Ocultar mapa de vecindad"},
     "card_no_connections":{"English": "This claim has no direct argument connections.",
                            "Español": "Esta afirmación no tiene conexiones de argumento directas."},
+    "card_purpose":       {"English": "Purpose",         "Español": "Propósito"},
+    "card_role_loading":  {"English": "Analyzing role…",  "Español": "Analizando rol…"},
+    "card_stance_label":  {"English": "Stance:",          "Español": "Posición:"},
     "card_empty_hint":    {
         "English": "Click any block in the timeline to see the full claim details here.",
         "Español": "Haz clic en cualquier bloque de la línea de tiempo para ver los detalles aquí.",
@@ -1217,12 +1220,39 @@ def _suggest_motions(
     return [ln.strip() for ln in raw.splitlines() if ln.strip()][:5]
 
 
+def _get_claim_role(
+    claim: dict,
+    thread_topic: str,
+    n_connections: int,
+    api_key: str,
+) -> str:
+    """Call Claude Haiku to produce a ≤12-word argumentative role sentence for this claim."""
+    client = anthropic.Anthropic(api_key=api_key)
+    prompt = (
+        f'Claim: "{claim.get("text", "")}"\n'
+        f"Thread topic: {thread_topic}\n"
+        f"Claim type: {claim.get('claim_type', '')}\n"
+        f"Connected to {n_connections} other claims.\n\n"
+        "In 12 words or fewer, describe the argumentative role this claim plays "
+        "in the debate. Examples: \"Establishes the speaker's opening position on diet\", "
+        "\"Directly challenges the opponent's data claim\". "
+        "Respond in the same language as the claim. No trailing punctuation."
+    )
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=60,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return response.content[0].text.strip().rstrip(".")
+
+
 def _render_claim_card(
     sel_c: dict,
     tl_claims: list,
     tl_threads: list,
     speaker_names: dict,
     lang: str,
+    api_key: str = "",
 ) -> None:
     """Render the detailed claim card into whatever Streamlit container is currently active."""
     L = lambda key: LABELS.get(key, {}).get(lang, key)
@@ -1261,6 +1291,44 @@ def _render_claim_card(
     if _sel_stage_lbl:
         _meta_parts.append(f"**{L('card_stage')}:** {_sel_stage_lbl}")
     st.markdown(" &nbsp;·&nbsp; ".join(_meta_parts), unsafe_allow_html=True)
+
+    # Purpose section — stance badge + AI role sentence
+    _motion_set  = st.session_state.get("motion", "").strip()
+    _stance      = sel_c.get("stance", "")
+    _all_resp    = st.session_state.get("responses", [])
+    _n_conn      = sum(
+        1 for r in _all_resp
+        if r.get("from_claim_id") == _sel_id
+        or r.get("responds_to_claim_id") == _sel_id
+    )
+    _roles_cache = st.session_state.setdefault("claim_roles", {})
+
+    if _motion_set and _stance in ("pro", "con", "neutral"):
+        _STANCE_HTML = {
+            "pro":     (f'<span style="color:#2ca02c;font-weight:bold;font-size:0.88em">'
+                        f'▲ {L("stance_pro")}</span>'),
+            "con":     (f'<span style="color:#d62728;font-weight:bold;font-size:0.88em">'
+                        f'▼ {L("stance_con")}</span>'),
+            "neutral": (f'<span style="color:#888;font-size:0.88em">'
+                        f'● {L("stance_neutral")}</span>'),
+        }
+        st.markdown(
+            f"<small>{L('card_stance_label')}</small> {_STANCE_HTML[_stance]}",
+            unsafe_allow_html=True,
+        )
+
+    if _sel_id in _roles_cache:
+        if _roles_cache[_sel_id]:
+            st.caption(f"**{L('card_purpose')}:** {_roles_cache[_sel_id]}")
+    elif api_key:
+        with st.spinner(L("card_role_loading")):
+            try:
+                _roles_cache[_sel_id] = _get_claim_role(
+                    sel_c, _sel_topic, _n_conn, api_key
+                )
+            except Exception:
+                _roles_cache[_sel_id] = ""
+        st.rerun()
 
     st.markdown("---")
 
@@ -3695,6 +3763,7 @@ def main() -> None:
                                         _render_claim_card(
                                             _sel_c, _tl_claims, _tl_threads,
                                             speaker_names_an, lang,
+                                            api_key=anthropic_key,
                                         )
 
                         with _tl_left:
