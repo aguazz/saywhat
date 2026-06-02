@@ -3,6 +3,7 @@ import io
 import json
 import os
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from downloader import download_audio
+from transcript_cleaner import detect_out_of_scope_utterances
 from exporters import build_analysis_pdf, build_pdf, substitute_names
 from flagging import flag_transcript
 from identifier import suggest_speaker_names
@@ -32,6 +34,7 @@ from truth_checker.scorer      import compute_speaker_scores, compute_debate_sco
 from truth_checker.visualizer  import build_graph_html
 from truth_checker.dung        import compute_grounded_extension
 from truth_checker.deduplicator import mark_restatements
+from truth_checker.entity_glossary import build_entity_glossary
 from truth_checker              import help_dialogs
 from streamlit_javascript import st_javascript
 from truth_checker.stage_labeler import label_dialectical_stages
@@ -1675,6 +1678,32 @@ def main() -> None:
                 help=L("motion_help"),
             )
 
+            # ── Clean transcript (optional) ───────────────────────────────────
+            with st.expander("🧹 Clean transcript (optional)", expanded=False):
+                st.caption("Detect and remove intro, outro, sponsor reads, and mid-roll ads before running analysis.")
+                if st.button("Detect non-debate segments"):
+                    with st.spinner("Scanning transcript for non-debate content…"):
+                        out_indices = detect_out_of_scope_utterances(
+                            utterances_an,
+                            motion=st.session_state.get("motion", ""),
+                            api_key=anthropic_key,
+                        )
+                    st.session_state["excluded_utterance_indices"] = set(out_indices)
+                    if out_indices:
+                        st.success(f"Found {len(out_indices)} utterance(s) to exclude. Review below.")
+                    else:
+                        st.info("No non-debate segments detected.")
+
+                excluded = st.session_state.get("excluded_utterance_indices", set())
+                if excluded:
+                    for idx in sorted(excluded):
+                        if idx < len(utterances_an):
+                            u = utterances_an[idx]
+                            st.markdown(f"**[{idx}] {u['speaker']}:** {u['text'][:120]}…")
+                    if st.button("Clear exclusions"):
+                        st.session_state["excluded_utterance_indices"] = set()
+                        st.rerun()
+
             # ── Run Analysis button ────────────────────────────────────────────
             if not anthropic_key:
                 st.warning(L("no_anthropic_an"))
@@ -1757,13 +1786,29 @@ def main() -> None:
                 st.session_state["_analysis_id"] = aid
                 prog = st.progress(0, text=L("prog_seg"))
                 try:
-                    turns = segment_turns(utterances_an)
+                    excluded = st.session_state.get("excluded_utterance_indices", set())
+                    turns = segment_turns(utterances_an, excluded_indices=excluded)
                     prog.progress(5, text=L("prog_seg"))
 
                     _motion = st.session_state.get("motion", "")
+
+                    glossary = {}
+                    with st.spinner("Building entity glossary…"):
+                        transcript_text = "\n".join(
+                            f"{u['speaker']}: {u['text'].strip()}"
+                            for u in utterances_an
+                            if u.get("text", "").strip()
+                        )
+                        glossary = build_entity_glossary(
+                            transcript_text,
+                            motion=_motion,
+                            api_key=anthropic_key,
+                        )
+                    st.session_state["entity_glossary"] = glossary
+
                     all_claims: list[dict] = []
                     for i, turn in enumerate(turns):
-                        claims = extract_claims_from_turn(turn, anthropic_key, motion=_motion)
+                        claims = extract_claims_from_turn(turn, anthropic_key, motion=_motion, glossary=glossary)
                         all_claims.extend(claims)
                         pct = 5 + int((i + 1) / max(len(turns), 1) * 50)
                         prog.progress(pct, text=LABELS["prog_extract"][lang].format(i=i + 1, n=len(turns)))
@@ -1904,32 +1949,38 @@ def main() -> None:
                         and c.get("claim_type") in _VERIFIABLE_TYPES
                         and not c.get("restatement_of")
                     ]
-                    verdicts: dict = {}
-                    prog_fc = st.progress(
-                        0,
-                        text=LABELS["prog_factcheck"][lang].format(i=0, n=len(checkable)),
-                    )
-                    for i, claim in enumerate(checkable):
-                        try:
-                            evidence = retrieve_evidence(
-                                claim.get("suggested_query") or claim["text"],
-                                language=transcript_lang,
-                            )
-                            vdict = verify_claim(claim, evidence, anthropic_key)
-                        except Exception as exc:
-                            vdict = {
-                                "claim_id": claim["id"], "verdict": "unverifiable",
-                                "confidence": 0.0,
-                                "explanation": f"Error during fact-check: {exc}",
-                                "for_the_claim": "", "against_the_claim": "",
-                                "key_source": "", "all_sources": [],
-                            }
-                        verdicts[claim["id"]] = vdict
-                        pct = int((i + 1) / max(len(checkable), 1) * 100)
-                        prog_fc.progress(
-                            pct,
-                            text=LABELS["prog_factcheck"][lang].format(i=i + 1, n=len(checkable)),
+                    glossary = st.session_state.get("entity_glossary", {})
+
+                    def _check_one(claim):
+                        evidence = retrieve_evidence(
+                            claim.get("suggested_query") or claim["text"],
+                            language=transcript_lang,
                         )
+                        return claim["id"], verify_claim(claim, evidence, glossary, api_key=anthropic_key)
+
+                    verdicts: dict = {}
+                    prog_fc = st.progress(0, text=LABELS["prog_factcheck"][lang].format(i=0, n=len(checkable)))
+                    max_workers = min(len(checkable), 10)
+                    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                        futures = {pool.submit(_check_one, claim): claim for claim in checkable}
+                        for i, future in enumerate(as_completed(futures), 1):
+                            claim = futures[future]
+                            try:
+                                claim_id, vdict = future.result()
+                            except Exception as exc:
+                                claim_id = claim["id"]
+                                vdict = {
+                                    "claim_id": claim_id, "verdict": "unverifiable",
+                                    "confidence": 0.0,
+                                    "explanation": f"Error during fact-check: {exc}",
+                                    "for_the_claim": "", "against_the_claim": "",
+                                    "key_source": "", "all_sources": [],
+                                }
+                            verdicts[claim_id] = vdict
+                            prog_fc.progress(
+                                int(i / max(len(checkable), 1) * 100),
+                                text=LABELS["prog_factcheck"][lang].format(i=i, n=len(checkable)),
+                            )
                     st.session_state["verdicts"] = verdicts
                     st.rerun()
 

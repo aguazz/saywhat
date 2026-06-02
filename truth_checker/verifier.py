@@ -3,6 +3,7 @@ import logging
 
 import anthropic
 
+from truth_checker.entity_glossary import format_glossary_for_prompt
 from truth_checker.evidence import lookup_citation
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ _PARSE_FAILURE = {
 }
 
 
+
 def _format_evidence(evidence: list[dict]) -> str:
     lines = []
     for i, item in enumerate(evidence, 1):
@@ -89,7 +91,7 @@ def _format_evidence(evidence: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def verify_claim(claim: dict, evidence: list[dict], api_key: str) -> dict:
+def verify_claim(claim: dict, evidence: list[dict], glossary: dict = {}, *, api_key: str) -> dict:
     """
     Assess a claim using retrieved evidence + Claude's training knowledge (Option C hybrid).
 
@@ -115,10 +117,16 @@ def verify_claim(claim: dict, evidence: list[dict], api_key: str) -> dict:
         )
         logger.info("verify_claim %s: no evidence retrieved", claim.get("id"))
 
+    _glossary_block = (
+        f"Debate entity glossary (use this to resolve ambiguous names):\n{format_glossary_for_prompt(glossary)}\n\n"
+        if glossary else ""
+    )
+
     user_msg = (
         f"Claim: {claim['text']}\n"
         f"Speaker: {claim.get('speaker', '')}\n"
         f"{_warrant_line}"
+        f"{_glossary_block}"
         f"\n{evidence_section}"
     )
 

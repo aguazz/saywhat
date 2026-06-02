@@ -1,14 +1,17 @@
-def segment_turns(utterances: list[dict]) -> list[dict]:
+def segment_turns(utterances: list[dict], excluded_indices: set[int] | None = None) -> list[dict]:
     """
     Group consecutive utterances from the same speaker into turns.
 
     Empty utterances (blank or whitespace-only text) are skipped before grouping.
+    excluded_indices: 0-based positions in utterances to skip entirely.
     Returns a list of turn dicts ordered chronologically, with 0-based turn_index.
     """
     turns = []
     current: dict | None = None
 
-    for utt in utterances:
+    for orig_idx, utt in enumerate(utterances):
+        if excluded_indices and orig_idx in excluded_indices:
+            continue
         if not utt.get("text", "").strip():
             continue
 

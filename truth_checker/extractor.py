@@ -4,6 +4,8 @@ import time
 
 import anthropic
 
+from truth_checker.entity_glossary import format_glossary_for_prompt
+
 logger = logging.getLogger(__name__)
 
 _SYSTEM = (
@@ -66,7 +68,7 @@ _SYSTEM = (
 _MIN_TURN_WORDS = 20   # skip turns shorter than this — usually greetings or brief remarks
 
 
-def extract_claims_from_turn(turn: dict, api_key: str, motion: str = "") -> list[dict]:
+def extract_claims_from_turn(turn: dict, api_key: str, motion: str = "", glossary: dict = {}) -> list[dict]:
     """
     Extract discrete substantive claims from a single speaker turn using Claude Haiku.
 
@@ -84,7 +86,13 @@ def extract_claims_from_turn(turn: dict, api_key: str, motion: str = "") -> list
 
     client = anthropic.Anthropic(api_key=api_key)
     motion_line = f"Debate motion: {motion}\n" if motion.strip() else ""
-    user_msg = f"{motion_line}Speaker: {turn['speaker']}\nText:\n{turn['text']}"
+    glossary_block = (
+        f"Entity glossary (when a claim uses a variant name, rewrite it as the canonical "
+        f"name followed by the variant in parentheses, e.g. 'Ancel Keys (referido como «Kiss»)'):\n"
+        f"{format_glossary_for_prompt(glossary)}\n\n"
+        if glossary else ""
+    )
+    user_msg = f"{motion_line}{glossary_block}Speaker: {turn['speaker']}\nText:\n{turn['text']}"
 
     try:
         response = client.messages.create(

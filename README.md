@@ -22,10 +22,12 @@ fact-checks each speaker's claims against peer-reviewed scientific literature.
 - Every transcript gets a shareable link (UUID in URL, stored in SQLite)
 
 **Phase 2 — Debate Analysis (complete)**
+- **Transcript cleaning (optional, user-triggered)**: detects and excludes intro/outro monologues, sponsor reads, mid-roll ads, and repeated teaser clips before analysis runs
+- **Entity glossary**: automatically identifies entities that appear under multiple surface forms (phonetic variants, nicknames, abbreviations) and resolves them to canonical names throughout extraction and fact-checking
 - Extracts and classifies every speaker's claims (factual, statistical, causal, moral, and more)
 - Detects how claims respond to each other: refutes, undercuts, reframes, supports, evades, and more
 - Builds an interactive argument map: claims as nodes, responses as directed edges
-- Retrieves evidence from Wikipedia and Semantic Scholar; returns a verdict per checkable claim
+- Retrieves evidence from Wikipedia and Semantic Scholar; verifies all checkable claims **in parallel** (up to 10 at once) using the entity glossary for name resolution
 - Detects logical fallacies and rhetorical devices per speaker turn
 - Scores each speaker: factual reliability, direct-response engagement rate, thread engagement, and rebuttal rate
 - Generates a plain-language narrative summary of each speaker's debate performance
@@ -43,33 +45,37 @@ See [docs/how-it-works.md](docs/how-it-works.md) for a full explanation of how t
 ```
 debate-fact-checker/
 │
-├── app.py              Main Streamlit web app — UI, routing, session state
-├── downloader.py       Downloads audio from YouTube URLs or prepares local files
-│                       using yt-dlp + ffmpeg. Enforces 1.5-hour limit.
-├── transcriber.py      Sends audio to AssemblyAI, returns structured transcript
-│                       with speaker labels, timestamps, and confidence scores.
-├── flagging.py         Classifies each utterance and word as ok / uncertain / unreliable
-│                       based on AssemblyAI confidence scores.
-├── storage.py          SQLite storage (transcripts.db). Handles transcripts, analyses,
-│                       claims, and verdict feedback. Each record gets a UUID.
-├── exporters.py        Builds PDF (fpdf2) and JSON exports for both phases.
+├── app.py                  Main Streamlit web app — UI, routing, session state
+├── downloader.py           Downloads audio from YouTube URLs or prepares local files
+│                           using yt-dlp + ffmpeg. Enforces 1.5-hour limit.
+├── transcriber.py          Sends audio to AssemblyAI, returns structured transcript
+│                           with speaker labels, timestamps, and confidence scores.
+├── flagging.py             Classifies each utterance and word as ok / uncertain / unreliable
+│                           based on AssemblyAI confidence scores.
+├── storage.py              SQLite storage (transcripts.db). Handles transcripts, analyses,
+│                           claims, and verdict feedback. Each record gets a UUID.
+├── exporters.py            Builds PDF (fpdf2) and JSON exports for both phases.
+├── transcript_cleaner.py   Detects out-of-scope utterances (intros, ads, outro) using
+│                           Claude Sonnet; returns indices to exclude before analysis.
 │
-├── truth_checker/      Phase 2 — debate analysis pipeline
-│   ├── segmenter.py    Groups utterances into speaker turns
-│   ├── extractor.py    Extracts claims from each turn (Claude Haiku)
-│   ├── classifier.py   Classifies claim type, checkability, evidence quality
-│   ├── threader.py     Groups claims by topic into argument threads
-│   ├── responder.py    Detects cross-speaker responses and relationship types
-│   ├── dung.py         Computes grounded extension (argument acceptability)
-│   ├── evidence.py     Retrieves Wikipedia + Semantic Scholar sources
-│   ├── verifier.py     Generates fact-check verdicts (Claude Sonnet)
-│   ├── rhetorician.py  Detects fallacies and rhetorical devices
-│   ├── scorer.py       Computes per-speaker and debate-level scores (reliability, engagement,
-│   │                   rebuttal rate, thread engagement, response density, etc.)
-│   ├── reporter.py     Generates plain-language speaker narrative summaries
-│   ├── visualizer.py   Builds pyvis/networkx argument graph
-│   ├── translator.py   Translates claims EN ↔ ES on demand
-│   └── deduplicator.py Removes near-duplicate claims
+├── truth_checker/          Phase 2 — debate analysis pipeline
+│   ├── segmenter.py        Groups utterances into speaker turns; supports excluded_indices
+│   ├── extractor.py        Extracts claims from each turn (Claude Haiku); entity-aware
+│   ├── entity_glossary.py  Builds entity glossary (name variants → canonical) and
+│   │                       provides format_glossary_for_prompt() used by extractor + verifier
+│   ├── classifier.py       Classifies claim type, checkability, evidence quality
+│   ├── threader.py         Groups claims by topic into argument threads
+│   ├── responder.py        Detects cross-speaker responses and relationship types
+│   ├── dung.py             Computes grounded extension (argument acceptability)
+│   ├── evidence.py         Retrieves Wikipedia + Semantic Scholar sources
+│   ├── verifier.py         Generates fact-check verdicts (Claude Sonnet); accepts glossary
+│   ├── rhetorician.py      Detects fallacies and rhetorical devices
+│   ├── scorer.py           Computes per-speaker and debate-level scores (reliability, engagement,
+│   │                       rebuttal rate, thread engagement, response density, etc.)
+│   ├── reporter.py         Generates plain-language speaker narrative summaries
+│   ├── visualizer.py       Builds pyvis/networkx argument graph
+│   ├── translator.py       Translates claims EN ↔ ES on demand
+│   └── deduplicator.py     Removes near-duplicate claims
 │
 ├── docs/               User-facing documentation
 │   ├── how-it-works.md Full explanation of the debate-analysis system with examples

@@ -132,13 +132,17 @@ From Alex and Sam's debate, SayWhat would map these relationships:
 
 ---
 
-## The Ten-Step Pipeline
+## The Pipeline
 
-SayWhat processes a debate in ten steps:
+SayWhat processes a debate in twelve steps. Steps 0a and 0b are optional pre-processing steps the user can run before analysis; steps 1–10 are the core analysis pipeline.
 
-1. **Split into turns.** Group the transcript by speaker, creating a sequence of turns.
+**0a. Clean transcript (optional).** Scan the full transcript for non-debate content — host monologues, sponsor reads, mid-roll ads, and repeated teaser clips — and mark those utterances for exclusion. The user reviews the flagged segments before confirming. Excluded utterances are skipped in all subsequent steps without modifying the stored transcript.
 
-2. **Extract claims.** Read each turn and pull out the substantive statements (3–6 per turn). Questions, jokes, filler, and pure rhetorical questions are filtered out.
+**0b. Build entity glossary (automatic, runs at the start of analysis).** Scan the full transcript for named entities that appear under more than one surface form — phonetic variants, nicknames, abbreviations, partial references. Returns a glossary mapping each surface form to a canonical name and description (e.g. "Kiss" → "Ancel Keys — American nutritionist"). The glossary is passed to both extraction and fact-checking so ambiguous names are resolved consistently throughout.
+
+1. **Split into turns.** Group the remaining utterances by speaker, creating a sequence of turns.
+
+2. **Extract claims.** Read each turn and pull out the substantive statements (3–6 per turn). Questions, jokes, filler, and pure rhetorical questions are filtered out. When an entity glossary is available, the extractor rewrites variant names to canonical form (e.g. "Los trabajos de Kiss" → "Los trabajos de Ancel Keys (referido como 'Kiss')").
 
 3. **Classify each claim.** Assign a claim type, checkable flag, evidence-quality rating, and a suggested search query.
 
@@ -150,7 +154,7 @@ SayWhat processes a debate in ten steps:
 
 7. **Retrieve evidence.** Search Wikipedia and academic databases for information relevant to each checkable claim.
 
-8. **Verify claims.** Pass each checkable claim and its evidence to an AI model, which returns a verdict and explanation.
+8. **Verify claims.** Pass each checkable claim, its evidence, and the entity glossary to an AI model, which returns a verdict and explanation. All checkable claims are verified **in parallel** (up to 10 at once) so a large debate takes roughly the same time as verifying a single claim.
 
 9. **Detect rhetoric.** Analyze each speaker turn for logical fallacies (straw man, cherry-picking, ad hominem, etc.) and legitimate rhetorical devices (appeals to authority, vivid examples, etc.).
 
