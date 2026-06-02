@@ -1042,11 +1042,14 @@ def _build_thread_timeline(
     Returns an HTML string ready for st.markdown(..., unsafe_allow_html=True).
     """
     _SPK_COLORS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
-    LANE_H  = 28    # px height of each thread lane
-    GAP     = 5     # px vertical gap between lanes
-    LABEL_W = 175   # px width of the left label column
-    AXIS_H  = 22    # px for the time axis at the bottom
-    MIN_W   = 0.8   # minimum claim bar width in %
+    LANE_H       = 28    # px height of each thread lane
+    GAP          = 5     # px vertical gap between lanes
+    LABEL_W      = 175   # px width of the left label column
+    AXIS_H       = 22    # px for the time axis at the bottom
+    MIN_W        = 0.8   # minimum claim bar width in %
+    # Fixed track width so overflow-x:auto activates and bars stay readable.
+    # 1200 px gives ~67 px/min for an 18-min debate; scales up for longer ones.
+    TRACK_MIN_W  = max(1200, int(max_ms / 60_000 * 25))
 
     threaded = [c for c in claims if c.get("thread_id")]
     if not threaded or not threads:
@@ -1081,7 +1084,10 @@ def _build_thread_timeline(
     else:
         tick_ms = 10_000
 
-    html = '<div style="width:100%;overflow-x:auto;font-family:sans-serif;font-size:0.8em;padding:4px 0">'
+    html = (
+        f'<div style="width:100%;overflow-x:auto;font-family:sans-serif;'
+        f'font-size:0.8em;padding:4px 0 20px 0">'
+    )
 
     for thread in threads:
         tid     = thread["thread_id"]
@@ -1110,8 +1116,9 @@ def _build_thread_timeline(
 
         # Lane background
         html += (
-            f'<div style="flex:1;position:relative;height:{LANE_H}px;'
-            f'background:rgba(128,128,128,0.1);border-radius:4px;overflow:visible">'
+            f'<div style="width:{TRACK_MIN_W}px;flex-shrink:0;position:relative;'
+            f'height:{LANE_H}px;background:rgba(128,128,128,0.1);'
+            f'border-radius:4px;overflow:visible">'
         )
 
         for c in t_claims:
@@ -1163,7 +1170,7 @@ def _build_thread_timeline(
     # Time axis
     html += f'<div style="display:flex;margin-top:2px">'
     html += f'<div style="min-width:{LABEL_W}px"></div>'
-    html += f'<div style="flex:1;position:relative;height:{AXIS_H}px">'
+    html += f'<div style="width:{TRACK_MIN_W}px;flex-shrink:0;position:relative;height:{AXIS_H}px">'
 
     t = 0
     while t <= max_ms:
@@ -3777,7 +3784,7 @@ def main() -> None:
 
                         with _tl_left:
                             if _tl_html:
-                                _tl_h = len(_tl_threads) * 33 + 82
+                                _tl_h = len(_tl_threads) * 33 + 106  # +24 for scrollbar
                                 components.html(_tl_html, height=_tl_h, scrolling=False)
 
                 # ── Fact-Check sub-tab ────────────────────────────────────────
