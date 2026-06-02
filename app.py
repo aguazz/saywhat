@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
+import anthropic
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -863,6 +864,19 @@ LABELS = {
         "English": "When provided, each claim is tagged as supporting (pro) or opposing (con) this motion.",
         "Español": "Si se indica, cada afirmación se etiqueta como a favor o en contra de esta moción.",
     },
+    "btn_suggest_motions": {"English": "✨ Suggest",    "Español": "✨ Sugerir"},
+    "suggesting_motions":  {
+        "English": "Asking Claude for motion suggestions…",
+        "Español": "Consultando a Claude para sugerencias de moción…",
+    },
+    "motion_suggestions_label": {
+        "English": "Suggestions — click one to use it:",
+        "Español": "Sugerencias — haz clic para usar una:",
+    },
+    "motion_suggestions_err": {
+        "English": "Could not generate suggestions. Check that the API key is valid.",
+        "Español": "No se pudieron generar sugerencias. Comprueba que la clave API es válida.",
+    },
     # ── Qualifier plain-language display labels (per Section 8.1) ───────────
     "qualifier_labels": {
         "English": {
@@ -1122,6 +1136,45 @@ def _build_thread_timeline(
     )
 
     return html
+
+
+def _suggest_motions(
+    claims: list[dict],
+    threads: list[dict],
+    speaker_names: dict,
+    api_key: str,
+) -> list[str]:
+    """Call Claude Haiku to suggest 3-5 debate motions based on the analysis content."""
+    thread_lines = "\n".join(
+        f"- {t['topic']}" for t in threads[:12] if t.get("topic")
+    )
+    claim_lines = "\n".join(
+        f"- {c['text']}" for c in claims[:18] if c.get("text")
+    )
+    speakers_str = ", ".join(set(speaker_names.values()))
+
+    prompt = (
+        f"You are analyzing a debate between: {speakers_str}.\n\n"
+        f"Main debate threads:\n{thread_lines}\n\n"
+        f"Sample claims made in the debate:\n{claim_lines}\n\n"
+        "Based on this content, suggest 3–5 possible debate motions or central questions "
+        "that could frame this debate. Requirements:\n"
+        "- Each must be a single clear sentence (motion) or question\n"
+        "- Must be genuinely debatable — reasonable people could disagree\n"
+        "- Must capture the core disagreement visible in the content\n"
+        "- Match the language of the content exactly "
+        "(if the claims are in Spanish, respond in Spanish)\n"
+        "- Output one motion per line. No numbering, no bullet points, no extra text."
+    )
+
+    client = anthropic.Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = response.content[0].text.strip()
+    return [ln.strip() for ln in raw.splitlines() if ln.strip()][:5]
 
 
 def apply_filters(
@@ -1675,12 +1728,45 @@ def main() -> None:
                             st.error(L("err_invalid_json"))
 
             # ── Debate motion input ────────────────────────────────────────────
-            st.session_state["motion"] = st.text_input(
-                L("motion_label"),
-                value=st.session_state.get("motion", ""),
-                placeholder=L("motion_ph"),
-                help=L("motion_help"),
-            )
+            _mot_col, _mot_sugg_col = st.columns([4, 1])
+            with _mot_col:
+                st.session_state["motion"] = st.text_input(
+                    L("motion_label"),
+                    value=st.session_state.get("motion", ""),
+                    placeholder=L("motion_ph"),
+                    help=L("motion_help"),
+                    key="motion_input",
+                )
+            with _mot_sugg_col:
+                _an_for_sugg = st.session_state.get("analysis")
+                st.markdown("<div style='padding-top:28px'></div>", unsafe_allow_html=True)
+                if _an_for_sugg and anthropic_key:
+                    if st.button(L("btn_suggest_motions"), key="btn_sugg_motions",
+                                 use_container_width=True):
+                        with st.spinner(L("suggesting_motions")):
+                            try:
+                                _suggs = _suggest_motions(
+                                    claims       = _an_for_sugg.get("claims", []),
+                                    threads      = _an_for_sugg.get("threads", []),
+                                    speaker_names= speaker_names_an,
+                                    api_key      = anthropic_key,
+                                )
+                                st.session_state["motion_suggestions"] = _suggs
+                            except Exception:
+                                st.session_state["motion_suggestions"] = []
+                                st.error(L("motion_suggestions_err"))
+
+            _sugg_list = st.session_state.get("motion_suggestions", [])
+            if _sugg_list:
+                st.caption(L("motion_suggestions_label"))
+                for _sg in _sugg_list:
+                    if st.button(_sg, key=f"sugg_{abs(hash(_sg))}", use_container_width=True):
+                        st.session_state["motion_input"] = _sg
+                        st.session_state["motion"]       = _sg
+                        st.session_state.pop("motion_suggestions", None)
+                        st.rerun()
+            elif _sugg_list == [] and "motion_suggestions" in st.session_state:
+                st.error(L("motion_suggestions_err"))
 
             # ── Clean transcript (optional) ───────────────────────────────────
             with st.expander("🧹 Clean transcript (optional)", expanded=False):
