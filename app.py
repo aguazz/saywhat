@@ -340,6 +340,15 @@ LABELS = {
         "Español": "⟋ rayas diagonales = afirmación repetida de un turno anterior",
     },
     "timeline_clear_sel": {"English": "✕ Clear selection", "Español": "✕ Quitar selección"},
+    # ── Color-mode toggle ────────────────────────────────────────────────────
+    "tl_color_label":      {"English": "Color by:",          "Español": "Colorear por:"},
+    "tl_color_speakers":   {"English": "Speakers",           "Español": "Hablantes"},
+    "tl_color_stage":      {"English": "Stage",              "Español": "Etapa"},
+    "tl_color_type":       {"English": "Claim type",         "Español": "Tipo"},
+    "tl_type_factual_grp": {"English": "Factual / Statistical",      "Español": "Factual / Estadística"},
+    "tl_type_causal_grp":  {"English": "Causal / Predictive",        "Español": "Causal / Predictiva"},
+    "tl_type_def_grp":     {"English": "Definitional / Interpretive","Español": "Definitoria / Interpretiva"},
+    "tl_type_moral_grp":   {"English": "Moral / Anecdotal",          "Español": "Moral / Anecdótica"},
     # ── Thread scorecards ───────────────────────────────────────────────────
     "thread_scorecard_heading": {"English": "Thread Scorecards",  "Español": "Resumen por hilos"},
     "thread_depth":      {"English": "Claims",          "Español": "Afirmaciones"},
@@ -924,6 +933,25 @@ LABELS = {
 
 SPEAKER_COLORS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
 
+STAGE_COLORS = {
+    "confrontation": "#d62728",
+    "opening":       "#1f77b4",
+    "argumentation": "#2ca02c",
+    "concluding":    "#9467bd",
+}
+
+TYPE_COLOR_MAP = {
+    "factual":      "#1f77b4",
+    "statistical":  "#1f77b4",
+    "comparative":  "#1f77b4",
+    "causal":       "#ff7f0e",
+    "predictive":   "#ff7f0e",
+    "definitional": "#9467bd",
+    "interpretive": "#9467bd",
+    "moral":        "#d62728",
+    "anecdotal":    "#d62728",
+}
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -985,8 +1013,10 @@ def _build_thread_timeline(
     claims: list[dict],
     threads: list[dict],
     speaker_names: dict,
-    selected_claim_id: str | None = None,
-    highlighted_ids: set | None = None,
+    selected_claim_id = None,
+    highlighted_ids = None,
+    color_mode: str = "speaker",
+    claim_stage_map = None,
 ) -> str:
     """
     Build an HTML thread-timeline showing all threads as parallel horizontal lanes.
@@ -1075,7 +1105,13 @@ def _build_thread_timeline(
             start_pct = c.get("start_ms", 0) / max_ms * 100
             raw_w     = (c.get("end_ms", 0) - c.get("start_ms", 0)) / max_ms * 100
             width_pct = max(raw_w, MIN_W)
-            color     = spk_color.get(c["speaker"], "#aaaaaa")
+            if color_mode == "stage":
+                _bar_stage = (claim_stage_map or {}).get(c["id"], "")
+                color = STAGE_COLORS.get(_bar_stage, "#aaaaaa")
+            elif color_mode == "type":
+                color = TYPE_COLOR_MAP.get(c.get("claim_type", ""), "#aaaaaa")
+            else:
+                color = spk_color.get(c["speaker"], "#aaaaaa")
             is_sel    = c["id"] == selected_claim_id
             is_restat = bool(c.get("restatement_of"))
 
@@ -3274,15 +3310,69 @@ def main() -> None:
                                         unsafe_allow_html=True,
                                     )
 
-                        # ── Speaker legend + hint ──────────────────────────────
-                        _tl_speakers = sorted({c["speaker"] for c in _tl_claims if c.get("thread_id")})
-                        _tl_spk_colors = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
-                        _tl_legend = " &nbsp; ".join(
-                            f'<span style="background:{_tl_spk_colors[i % len(_tl_spk_colors)]};'
-                            f'border-radius:50%;display:inline-block;width:11px;height:11px"></span> '
-                            f'{speaker_names_an.get(s, s)}'
-                            for i, s in enumerate(_tl_speakers)
-                        )
+                        # ── Color-mode toggle ──────────────────────────────────
+                        _tl_color_mode = st.session_state.get("tl_color_mode", "speaker")
+                        _tcm_lbl, _tcm1, _tcm2, _tcm3 = st.columns([1, 1, 1, 5])
+                        _tcm_lbl.caption(L("tl_color_label"))
+                        if _tcm1.button(
+                            L("tl_color_speakers"),
+                            key="tl_cm_spk",
+                            type="primary" if _tl_color_mode == "speaker" else "secondary",
+                        ):
+                            st.session_state["tl_color_mode"] = "speaker"
+                            st.rerun()
+                        if _tcm2.button(
+                            L("tl_color_stage"),
+                            key="tl_cm_stg",
+                            type="primary" if _tl_color_mode == "stage" else "secondary",
+                            disabled=not st.session_state.get("stages"),
+                        ):
+                            st.session_state["tl_color_mode"] = "stage"
+                            st.rerun()
+                        if _tcm3.button(
+                            L("tl_color_type"),
+                            key="tl_cm_typ",
+                            type="primary" if _tl_color_mode == "type" else "secondary",
+                        ):
+                            st.session_state["tl_color_mode"] = "type"
+                            st.rerun()
+
+                        # ── Mode-aware legend + hint ───────────────────────────
+                        _STAGE_KEY_MAP = {
+                            "confrontation": "stage_confrontation",
+                            "opening":       "stage_opening",
+                            "argumentation": "stage_argumentation",
+                            "concluding":    "stage_concluding",
+                        }
+                        if _tl_color_mode == "stage":
+                            _tl_legend = " &nbsp; ".join(
+                                f'<span style="background:{STAGE_COLORS[s]};border-radius:2px;'
+                                f'display:inline-block;width:11px;height:11px"></span> {L(_STAGE_KEY_MAP[s])}'
+                                for s in ("confrontation", "opening", "argumentation", "concluding")
+                            )
+                        elif _tl_color_mode == "type":
+                            _type_groups = [
+                                ("#1f77b4", L("tl_type_factual_grp")),
+                                ("#ff7f0e", L("tl_type_causal_grp")),
+                                ("#9467bd", L("tl_type_def_grp")),
+                                ("#d62728", L("tl_type_moral_grp")),
+                            ]
+                            _tl_legend = " &nbsp; ".join(
+                                f'<span style="background:{col};border-radius:2px;'
+                                f'display:inline-block;width:11px;height:11px"></span> {lbl}'
+                                for col, lbl in _type_groups
+                            )
+                        else:
+                            _tl_speakers = sorted(
+                                {c["speaker"] for c in _tl_claims if c.get("thread_id")}
+                            )
+                            _tl_legend = " &nbsp; ".join(
+                                f'<span style="background:{SPEAKER_COLORS[i % len(SPEAKER_COLORS)]};'
+                                f'border-radius:50%;display:inline-block;width:11px;height:11px"></span> '
+                                f'{speaker_names_an.get(s, s)}'
+                                for i, s in enumerate(_tl_speakers)
+                            )
+
                         _tl_leg_col, _tl_clear_col = st.columns([4, 1])
                         with _tl_leg_col:
                             st.markdown(
@@ -3297,6 +3387,17 @@ def main() -> None:
                                 st.rerun()
 
                         # ── Timeline visualization ─────────────────────────────
+                        # Build claim→stage lookup for stage color mode
+                        _claim_stage_map = {}
+                        for _c in _tl_claims:
+                            for _st in st.session_state.get("stages", []):
+                                if (_st.get("speaker") == _c["speaker"]
+                                        and _st.get("start_ms", 0) <= _c.get("start_ms", 0)
+                                        and _st.get("end_ms", _c.get("start_ms", 0) + 1)
+                                        >= _c.get("start_ms", 0)):
+                                    _claim_stage_map[_c["id"]] = _st.get("dialectical_stage", "")
+                                    break
+
                         _tl_fc     = st.session_state.get("filtered_claims")
                         _tl_fc_all = analysis.get("claims", [])
                         _tl_hi     = (
@@ -3310,6 +3411,8 @@ def main() -> None:
                             speaker_names_an,
                             selected_claim_id=_sel_cid or None,
                             highlighted_ids=_tl_hi,
+                            color_mode=_tl_color_mode,
+                            claim_stage_map=_claim_stage_map,
                         )
                         if _tl_html:
                             _tl_h = len(_tl_threads) * 33 + 82
