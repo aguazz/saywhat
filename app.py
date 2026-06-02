@@ -1042,14 +1042,11 @@ def _build_thread_timeline(
     Returns an HTML string ready for st.markdown(..., unsafe_allow_html=True).
     """
     _SPK_COLORS = ["#1f77b4", "#2ca02c", "#d62728", "#9467bd", "#8c564b", "#e377c2"]
-    LANE_H       = 28    # px height of each thread lane
-    GAP          = 5     # px vertical gap between lanes
-    LABEL_W      = 175   # px width of the left label column
-    AXIS_H       = 22    # px for the time axis at the bottom
-    MIN_W        = 0.8   # minimum claim bar width in %
-    # Fixed track width so overflow-x:auto activates and bars stay readable.
-    # 1200 px gives ~67 px/min for an 18-min debate; scales up for longer ones.
-    TRACK_MIN_W  = max(1200, int(max_ms / 60_000 * 25))
+    LANE_H  = 28    # px height of each thread lane
+    GAP     = 5     # px vertical gap between lanes
+    LABEL_W = 175   # px width of the left label column
+    AXIS_H  = 22    # px for the time axis at the bottom
+    MIN_W   = 0.8   # minimum claim bar width in %
 
     threaded = [c for c in claims if c.get("thread_id")]
     if not threaded or not threads:
@@ -1058,6 +1055,10 @@ def _build_thread_timeline(
     max_ms = max(c.get("end_ms", c.get("start_ms", 0) + 1000) for c in threaded)
     if max_ms == 0:
         return ""
+
+    # Fixed track width — must be after max_ms is computed.
+    # 1200 px gives ~67 px/min for an 18-min debate; scales up for longer ones.
+    TRACK_MIN_W = max(1200, int(max_ms / 60_000 * 25))
 
     speakers  = sorted({c["speaker"] for c in threaded})
     spk_color = {spk: _SPK_COLORS[i % len(_SPK_COLORS)] for i, spk in enumerate(speakers)}
