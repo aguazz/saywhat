@@ -354,6 +354,10 @@ LABELS = {
     "card_challenged_by":{"English": "Challenged by",  "Español": "Cuestionado por"},
     "card_supported_by": {"English": "Supported by",   "Español": "Apoyado por"},
     "card_rhetoric":      {"English": "Rhetoric",             "Español": "Retórica"},
+    "card_rhetoric_scope": {
+        "English": "Detected in the speaker's full turn — may cover other claims made in the same breath.",
+        "Español": "Detectado en el turno completo del hablante — puede cubrir otras afirmaciones del mismo turno.",
+    },
     "card_show_minimap":  {"English": "Show neighbourhood map", "Español": "Ver mapa de vecindad"},
     "card_hide_minimap":  {"English": "Hide neighbourhood map", "Español": "Ocultar mapa de vecindad"},
     "card_no_connections":{"English": "This claim has no direct argument connections.",
@@ -3339,6 +3343,7 @@ def main() -> None:
                                             if _rh_falls or _rh_devices:
                                                 st.markdown("---")
                                                 st.markdown(f"**{L('card_rhetoric')}**")
+                                                st.caption(L("card_rhetoric_scope"))
                                                 if _rh_falls:
                                                     st.markdown(f"*{L('rhetoric_fallacies')}*")
                                                     for _f in _rh_falls:
