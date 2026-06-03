@@ -35,7 +35,7 @@ from truth_checker.reporter    import generate_speaker_summary
 from truth_checker.scorer      import compute_speaker_scores, compute_debate_scores
 from truth_checker.visualizer  import build_graph_html
 from truth_checker.dung        import compute_grounded_extension
-from truth_checker.deduplicator import mark_restatements
+from truth_checker.deduplicator import mark_restatements, remove_teaser_duplicates
 from truth_checker.entity_glossary import build_entity_glossary
 from truth_checker              import help_dialogs
 from streamlit_javascript import st_javascript
@@ -2402,6 +2402,9 @@ def main() -> None:
                         all_claims.extend(claims)
                         pct = 5 + int((i + 1) / max(len(turns), 1) * 50)
                         prog.progress(pct, text=LABELS["prog_extract"][lang].format(i=i + 1, n=len(turns)))
+
+                    # Drop claims that are teaser-clip duplicates of later claims.
+                    all_claims, _ = remove_teaser_duplicates(all_claims)
 
                     classified: list[dict] = []
                     for i, claim in enumerate(all_claims):

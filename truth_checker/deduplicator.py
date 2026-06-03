@@ -1,22 +1,121 @@
 """
-Restatement detection for debate claims.
+Claim deduplication for debate analysis.
 
-When a speaker makes the same assertion multiple times across different turns,
-those repetitions waste fact-check API calls and inflate claim counts. This
-module detects same-speaker, same-thread restatements and marks the later
-occurrence so the rest of the pipeline can skip it.
+Two functions:
+
+  remove_teaser_duplicates()
+      Pre-classification pass. Removes claims produced from podcast teaser
+      clips (the same exchange played at the top of an episode before the
+      intro). Identifies pairs of claims from the same speaker whose texts
+      are nearly identical but far apart in time, and drops the earlier one.
+      Zero API calls.
+
+  mark_restatements()
+      Post-threading pass. Detects same-speaker, same-thread restatements
+      and marks the later occurrence so the rest of the pipeline can skip
+      it. Makes batched calls to Claude Haiku.
 
 Reference: Peldszus & Stede (2013) — "restatement" annotation operation.
 """
 
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 
 import anthropic
 
 logger = logging.getLogger(__name__)
+
+# ── Teaser duplicate removal ──────────────────────────────────────────────────
+
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+
+
+def _word_set(text: str) -> frozenset:
+    """Lowercase, strip punctuation, return a frozenset of words."""
+    return frozenset(_PUNCT_RE.sub("", text.lower()).split())
+
+
+def _containment(a: frozenset, b: frozenset) -> float:
+    """
+    Fraction of the *shorter* set's words that appear in the other set.
+    More lenient than Jaccard: the real-debate instance often has a bit
+    more context than the compressed teaser version.
+    """
+    if not a or not b:
+        return 0.0
+    shorter = a if len(a) <= len(b) else b
+    return len(a & b) / len(shorter)
+
+
+def remove_teaser_duplicates(
+    claims: list[dict],
+    threshold: float = 0.75,
+    min_gap_ms: int = 120_000,
+    min_words: int = 5,
+) -> tuple[list[dict], int]:
+    """
+    Remove claims that are near-duplicates of later claims from the same
+    speaker — a signature of podcast teaser clips played at the start of
+    an episode before the actual debate begins.
+
+    Algorithm (no API calls):
+    - For each same-speaker pair (earlier, later) where the time gap is
+      at least min_gap_ms, compute the containment ratio of their texts.
+    - If containment >= threshold the earlier claim is a teaser copy:
+      drop it and keep the later (canonical) instance.
+    - Claims with fewer than min_words words are skipped to avoid false
+      positives on very short phrases.
+
+    Returns (deduplicated_claims, n_removed).
+    """
+    if len(claims) <= 1:
+        return claims, 0
+
+    by_time = sorted(claims, key=lambda c: c.get("start_ms", 0))
+    word_sets = [_word_set(c.get("text", "")) for c in by_time]
+    to_remove: set[int] = set()
+    n = len(by_time)
+
+    for i in range(n):
+        if i in to_remove:
+            continue
+        ws_i = word_sets[i]
+        if len(ws_i) < min_words:
+            continue
+        t_i = by_time[i].get("start_ms", 0)
+        spk_i = by_time[i].get("speaker")
+
+        for j in range(i + 1, n):
+            if j in to_remove:
+                continue
+            if by_time[j].get("speaker") != spk_i:
+                continue
+            t_j = by_time[j].get("start_ms", 0)
+            if t_j - t_i < min_gap_ms:
+                continue
+            ws_j = word_sets[j]
+            if len(ws_j) < min_words:
+                continue
+            if _containment(ws_i, ws_j) >= threshold:
+                to_remove.add(i)
+                logger.debug(
+                    "Teaser dedup: dropped '%s' (%.0f ms) — duplicate of "
+                    "'%s' (%.0f ms)",
+                    by_time[i].get("text", "")[:60], t_i,
+                    by_time[j].get("text", "")[:60], t_j,
+                )
+                break  # i is already gone; no need to check further j's
+
+    kept = [c for k, c in enumerate(by_time) if k not in to_remove]
+    # Restore extraction order
+    kept.sort(key=lambda c: (c.get("turn_index", 0), c.get("id", "")))
+    return kept, len(to_remove)
+
+
+# ── Restatement detection ─────────────────────────────────────────────────────
 
 _BATCH_SIZE = 10
 _MAX_TURN_GAP = 8   # only compare claims within this many turns of each other
