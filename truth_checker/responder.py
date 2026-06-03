@@ -16,10 +16,19 @@ _SINGLE_SYSTEM = (
     "even if the conclusion might still be true), "
     "supports (agrees or extends), weakens (qualifies or reduces strength), "
     "reframes (accepts fact, changes interpretation), concedes (acknowledges "
-    "the other is at least partly right), evades (changes subject), ignores (no link).\n"
+    "the other is at least partly right), evades (changes subject), ignores (no link), "
+    "affirms (B adopts as their own assertion a proposition that A voiced as a challenge, "
+    "attribution, or question — B treats the proposition as true and commits to it; "
+    "this is stronger than 'supports', which merely adds evidence to an existing claim).\n"
     "Distinguish carefully: use \"refutes\" when the response denies the conclusion itself. "
     "Use \"undercuts\" when the response argues that the cited evidence or reasoning does "
-    "not support the conclusion, even if the conclusion might still be true.\n"
+    "not support the conclusion, even if the conclusion might still be true. "
+    "Use \"affirms\" ONLY when the responding speaker explicitly or implicitly accepts the "
+    "proposition as their own. Partial agreement, qualification, or building on a related "
+    "point does NOT count as 'affirms' — use 'weakens', 'reframes', or 'supports' instead. "
+    "'Affirms' is appropriate for responses like 'Sí, exactamente', 'Eso es lo que creo', "
+    "or when the speaker continues the debate treating the prior questioned premise as a "
+    "settled fact.\n"
     "Return a JSON object:\n"
     '{"is_response": bool, "responds_to_claim_id": str|null, '
     '"relationship": str|null, "explanation": str}'
@@ -28,17 +37,27 @@ _SINGLE_SYSTEM = (
 _BATCH_SYSTEM = (
     "You are an argument analyst. For each numbered Current Claim below, determine "
     "whether it is a direct response to any of its listed Prior Claims.\n"
-    "Relationship types: refutes / undercuts / supports / weakens / reframes / concedes / evades / ignores.\n"
+    "Relationship types: refutes / undercuts / supports / weakens / reframes / concedes / evades / ignores / affirms.\n"
+    "affirms: B adopts as their own assertion a proposition that A voiced as a challenge, "
+    "attribution, or question — B treats the proposition as true and commits to it; "
+    "this is stronger than 'supports', which merely adds evidence to an existing claim.\n"
     "Distinguish carefully: use \"refutes\" when the response denies the conclusion itself. "
     "Use \"undercuts\" when the response argues that the cited evidence or reasoning does "
-    "not support the conclusion, even if the conclusion might still be true.\n"
+    "not support the conclusion, even if the conclusion might still be true. "
+    "Use \"affirms\" ONLY when the responding speaker explicitly or implicitly accepts the "
+    "proposition as their own. Partial agreement, qualification, or building on a related "
+    "point does NOT count as 'affirms' — use 'weakens', 'reframes', or 'supports' instead. "
+    "'Affirms' is appropriate for responses like 'Sí, exactamente', 'Eso es lo que creo', "
+    "or when the speaker continues the debate treating the prior questioned premise as a "
+    "settled fact.\n"
     "Return a JSON array with EXACTLY one object per Current Claim, in the same order:\n"
     '[{"is_response": bool, "responds_to_claim_id": str|null, '
     '"relationship": str|null, "explanation": str}, ...]'
 )
 
 _VALID_RELATIONSHIPS = {
-    "refutes", "undercuts", "supports", "weakens", "reframes", "concedes", "evades", "ignores",
+    "refutes", "undercuts", "supports", "weakens", "reframes",
+    "concedes", "evades", "ignores", "affirms",
 }
 
 _MAX_PRIOR = 8
