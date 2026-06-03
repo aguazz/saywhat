@@ -35,6 +35,7 @@ from truth_checker.reporter    import generate_speaker_summary
 from truth_checker.scorer      import compute_speaker_scores, compute_debate_scores
 from truth_checker.visualizer  import build_graph_html
 from truth_checker.dung        import compute_grounded_extension
+from truth_checker.attribution_resolver import resolve_attributions
 from truth_checker.deduplicator import mark_restatements, remove_teaser_duplicates
 from truth_checker.entity_glossary import build_entity_glossary
 from truth_checker              import help_dialogs
@@ -2683,15 +2684,28 @@ def main() -> None:
                             text=LABELS["prog_detect"][lang].format(i=i, n=n),
                         )
                     try:
-                        st.session_state["responses"] = detect_responses(
+                        _new_responses = detect_responses(
                             _dr_claims, anthropic_key,
                             on_progress=_dr_progress,
                             model=_resp_model,
                             batch_size=_resp_batch_size,
                         )
+                        st.session_state["responses"] = _new_responses
+
+                        # Synthesize asserting claims for any non-asserting claims
+                        # that were affirmed by another speaker in the responses.
+                        _augmented_claims = resolve_attributions(
+                            analysis.get("claims", []), _new_responses
+                        )
+                        if len(_augmented_claims) > len(analysis.get("claims", [])):
+                            st.session_state["analysis"] = {
+                                **analysis,
+                                "claims": _augmented_claims,
+                            }
+
                         st.session_state["survivability"] = compute_grounded_extension(
-                            analysis.get("claims", []),
-                            st.session_state["responses"],
+                            st.session_state["analysis"].get("claims", []),
+                            _new_responses,
                         )
                         st.rerun()
                     except Exception as exc:
