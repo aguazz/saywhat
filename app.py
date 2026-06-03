@@ -2150,107 +2150,111 @@ def main() -> None:
                             motion=st.session_state.get("motion", ""),
                             api_key=anthropic_key,
                         )
-                    st.session_state["excluded_utterance_indices"] = {
-                        r["index"] for r in oos_results
-                    }
-                    st.session_state["excluded_utterance_reasons"] = {
-                        r["index"]: r["reason"] for r in oos_results
+                    # Initialise checkboxes for the new results (all checked = excluded)
+                    for _k in list(st.session_state.keys()):
+                        if _k.startswith("oos_check_") or _k.startswith("_oos_proposed_patch_"):
+                            del st.session_state[_k]
+                    for _r in oos_results:
+                        st.session_state[f"oos_check_{_r['index']}"] = True
+                    st.session_state["excluded_utterance_reasons"]    = {
+                        _r["index"]: _r["reason"] for _r in oos_results
                     }
                     st.session_state["excluded_utterance_confidence"] = {
-                        r["index"]: r.get("confidence", "high") for r in oos_results
+                        _r["index"]: _r.get("confidence", "high") for _r in oos_results
                     }
+                    st.session_state["utterance_patches"] = {}
                     if oos_results:
-                        n_high   = sum(1 for r in oos_results if r.get("confidence") == "high")
-                        n_medium = sum(1 for r in oos_results if r.get("confidence") == "medium")
-                        n_low    = sum(1 for r in oos_results if r.get("confidence") == "low")
-                        parts = [f"{len(oos_results)} segment(s) flagged"]
+                        n_medium = sum(1 for _r in oos_results if _r.get("confidence") == "medium")
+                        n_low    = sum(1 for _r in oos_results if _r.get("confidence") == "low")
+                        parts = [f"{len(oos_results)} segment(s) detected"]
                         if n_medium:
-                            parts.append(f"⚠️ {n_medium} mixed (review carefully)")
+                            parts.append(f"⚠️ {n_medium} mixed")
                         if n_low:
                             parts.append(f"ℹ️ {n_low} low-confidence")
                         st.success(
                             " · ".join(parts) + ". "
-                            "Remove any you disagree with, then download the cleaned transcript."
+                            "Checked segments will be excluded. Uncheck any you want to keep."
                         )
                     else:
                         st.info("No non-debate segments detected.")
                 if not anthropic_key:
                     st.caption("Add ANTHROPIC_API_KEY to enable detection.")
 
-                excluded = st.session_state.get("excluded_utterance_indices", set())
-                excluded_reasons    = st.session_state.get("excluded_utterance_reasons", {})
-                excluded_confidence = st.session_state.get("excluded_utterance_confidence", {})
+                _all_detected_reasons    = st.session_state.get("excluded_utterance_reasons", {})
+                _all_detected_confidence = st.session_state.get("excluded_utterance_confidence", {})
 
-                _CONF_ICON = {
-                    "high":   "🔴",
-                    "medium": "🟡",
-                    "low":    "🔵",
-                }
+                _CONF_ICON = {"high": "🔴", "medium": "🟡", "low": "🔵"}
                 _CONF_CAPTION = {
                     "high":   "",
-                    "medium": "⚠️ Mixed content — this utterance also contains debate material. "
-                              "Consider keeping it; the extractor will ignore the non-debate lines.",
+                    "medium": "⚠️ Mixed content — also has debate material. "
+                              "Consider unchecking and using '✂ Propose sub-utterance clean' instead.",
                     "low":    "ℹ️ Minor element — mostly debate content. "
-                              "Removing this utterance will likely discard useful claims.",
+                              "Unchecking is recommended.",
                 }
 
-                if excluded:
-                    for idx in sorted(excluded):
+                if _all_detected_reasons:
+                    _utt_patches = st.session_state.get("utterance_patches", {})
+
+                    # Derive the current exclusion set from checkbox states
+                    _excluded = {
+                        _i for _i in _all_detected_reasons.keys()
+                        if st.session_state.get(f"oos_check_{_i}", True)
+                        and _i not in _utt_patches      # patched utterances are always kept
+                    }
+                    st.session_state["excluded_utterance_indices"] = _excluded
+
+                    for idx in sorted(_all_detected_reasons.keys()):
                         if idx >= len(utterances):
                             continue
                         u          = utterances[idx]
                         spk_name   = speaker_names.get(u["speaker"]) or u["speaker"]
-                        reason     = excluded_reasons.get(idx, "Non-debate segment")
-                        confidence = excluded_confidence.get(idx, "high")
+                        reason     = _all_detected_reasons.get(idx, "Non-debate segment")
+                        confidence = _all_detected_confidence.get(idx, "high")
                         full_text  = u.get("text", "")
-                        preview    = (
-                            full_text[:180] + "…"
-                            if len(full_text) > 180 else full_text
-                        )
+                        preview    = (full_text[:180] + "…" if len(full_text) > 180 else full_text)
+                        is_patched = idx in _utt_patches
 
                         with st.container(border=True):
-                            col_hd, col_rm = st.columns([8, 1])
-                            with col_hd:
-                                icon = _CONF_ICON.get(confidence, "🔴")
-                                st.markdown(f"**[{idx}] {spk_name}**")
-                                st.caption(f"{icon} {reason}")
-                                warn = _CONF_CAPTION.get(confidence, "")
-                                if warn:
-                                    st.caption(warn)
-                            with col_rm:
+                            col_chk, col_info = st.columns([1, 10])
+                            with col_chk:
                                 st.markdown(
-                                    "<div style='padding-top:10px'></div>",
+                                    "<div style='padding-top:6px'></div>",
                                     unsafe_allow_html=True,
                                 )
-                                if st.button(
-                                    "✕",
-                                    key=f"btn_remove_oos_{idx}",
-                                    help="Keep this utterance (remove from exclusion list)",
-                                ):
-                                    new_excl = excluded - {idx}
-                                    new_rsns = {
-                                        k: v for k, v in excluded_reasons.items()
-                                        if k != idx
-                                    }
-                                    new_conf = {
-                                        k: v for k, v in excluded_confidence.items()
-                                        if k != idx
-                                    }
-                                    st.session_state["excluded_utterance_indices"]  = new_excl
-                                    st.session_state["excluded_utterance_reasons"]  = new_rsns
-                                    st.session_state["excluded_utterance_confidence"] = new_conf
-                                    st.rerun()
-                            st.markdown(f"*{preview}*")
-                            if st.toggle(
-                                "Show full text",
-                                key=f"toggle_full_{idx}",
-                                value=False,
-                            ):
-                                st.markdown(full_text)
+                                st.checkbox(
+                                    "exclude",
+                                    key=f"oos_check_{idx}",
+                                    label_visibility="collapsed",
+                                    help="Checked = exclude from analysis and cleaned download.",
+                                    disabled=is_patched,
+                                )
+                            with col_info:
+                                if is_patched:
+                                    st.markdown(
+                                        f"**[{idx}] {spk_name}** &nbsp;"
+                                        f'<span style="color:#2a7;font-size:0.85em">'
+                                        f"✅ patch applied — kept</span>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    st.caption(f"🔧 {reason} (non-debate lines removed by patch)")
+                                else:
+                                    icon = _CONF_ICON.get(confidence, "🔴")
+                                    st.markdown(f"**[{idx}] {spk_name}**")
+                                    st.caption(f"{icon} {reason}")
+                                    warn = _CONF_CAPTION.get(confidence, "")
+                                    if warn:
+                                        st.caption(warn)
 
-                            # Sub-utterance patch: offer surgical cleaning for
-                            # medium/low confidence flags (mixed content).
-                            if confidence in ("medium", "low") and anthropic_key:
+                            if is_patched:
+                                if st.toggle("Show patched text", key=f"toggle_full_{idx}", value=False):
+                                    st.markdown(_utt_patches[idx])
+                            else:
+                                st.markdown(f"*{preview}*")
+                                if st.toggle("Show full text", key=f"toggle_full_{idx}", value=False):
+                                    st.markdown(full_text)
+
+                            # Sub-utterance patch for medium/low confidence items
+                            if confidence in ("medium", "low") and anthropic_key and not is_patched:
                                 _proposed_key = f"_oos_proposed_patch_{idx}"
                                 _proposed = st.session_state.get(_proposed_key)
 
@@ -2258,12 +2262,11 @@ def main() -> None:
                                     if st.button(
                                         "✂ Propose sub-utterance clean",
                                         key=f"btn_patch_{idx}",
-                                        help="Ask Claude to remove only the non-debate sentences, keeping all debate content.",
+                                        help="Ask Claude to remove only the non-debate sentences.",
                                     ):
                                         with st.spinner("Proposing sub-utterance clean…"):
                                             _patch = propose_utterance_patch(
-                                                full_text,
-                                                reason,
+                                                full_text, reason,
                                                 motion=st.session_state.get("motion", ""),
                                                 api_key=anthropic_key,
                                             )
@@ -2293,38 +2296,26 @@ def main() -> None:
                                         )
                                     col_apply, col_discard = st.columns(2)
                                     with col_apply:
-                                        if st.button(
-                                            "✓ Apply patch",
-                                            key=f"btn_apply_patch_{idx}",
-                                            type="primary",
-                                        ):
-                                            _patches = st.session_state.setdefault(
-                                                "utterance_patches", {}
-                                            )
-                                            _patches[idx] = _proposed
-                                            # Remove from exclusion list — patched
-                                            # utterance is now clean enough to keep.
-                                            new_excl = excluded - {idx}
-                                            new_rsns = {k: v for k, v in excluded_reasons.items() if k != idx}
-                                            new_conf = {k: v for k, v in excluded_confidence.items() if k != idx}
-                                            st.session_state["excluded_utterance_indices"]    = new_excl
-                                            st.session_state["excluded_utterance_reasons"]    = new_rsns
-                                            st.session_state["excluded_utterance_confidence"] = new_conf
+                                        if st.button("✓ Apply patch", key=f"btn_apply_patch_{idx}", type="primary"):
+                                            st.session_state.setdefault("utterance_patches", {})[idx] = _proposed
+                                            # Uncheck — patched utterance is always kept
+                                            st.session_state[f"oos_check_{idx}"] = False
                                             del st.session_state[_proposed_key]
                                             st.rerun()
                                     with col_discard:
-                                        if st.button(
-                                            "✗ Discard proposal",
-                                            key=f"btn_discard_patch_{idx}",
-                                        ):
+                                        if st.button("✗ Discard proposal", key=f"btn_discard_patch_{idx}"):
                                             del st.session_state[_proposed_key]
                                             st.rerun()
 
-                    _utt_patches = st.session_state.get("utterance_patches", {})
+                    # ── Bottom controls ───────────────────────────────────────
+                    n_excluded = len(_excluded)
+                    n_patched  = len(_utt_patches)
+
+                    _utt_patches_dl = st.session_state.get("utterance_patches", {})
                     cleaned_utterances = [
-                        ({**u, "text": _utt_patches[i]} if i in _utt_patches else u)
+                        ({**u, "text": _utt_patches_dl[i]} if i in _utt_patches_dl else u)
                         for i, u in enumerate(merged_utterances)
-                        if i not in excluded
+                        if i not in _excluded
                     ]
                     cleaned_export = {
                         **json_export,
@@ -2332,28 +2323,39 @@ def main() -> None:
                         "_cleaned": True,
                     }
 
-                    col_clear, col_dl_clean = st.columns(2)
-                    with col_clear:
-                        if st.button("Clear all exclusions", key="btn_clear_oos"):
-                            st.session_state["excluded_utterance_indices"]    = set()
-                            st.session_state["excluded_utterance_reasons"]    = {}
-                            st.session_state["excluded_utterance_confidence"] = {}
-                            st.session_state["utterance_patches"]             = {}
-                            # Clear any pending proposals
-                            for _k in list(st.session_state.keys()):
-                                if _k.startswith("_oos_proposed_patch_"):
-                                    del st.session_state[_k]
+                    col_uncheck, col_checkall, col_dl_clean = st.columns([2, 2, 3])
+                    with col_uncheck:
+                        if st.button(
+                            "☐ Uncheck all",
+                            key="btn_uncheck_all_oos",
+                            help="Uncheck all — keep every utterance (nothing excluded).",
+                        ):
+                            for _i2 in _all_detected_reasons.keys():
+                                st.session_state[f"oos_check_{_i2}"] = False
+                            st.session_state["excluded_utterance_indices"] = set()
+                            st.rerun()
+                    with col_checkall:
+                        if st.button(
+                            "☑ Check all",
+                            key="btn_checkall_oos",
+                            help="Check all — exclude every detected segment.",
+                        ):
+                            for _i2 in _all_detected_reasons.keys():
+                                if _i2 not in _utt_patches:
+                                    st.session_state[f"oos_check_{_i2}"] = True
                             st.rerun()
                     with col_dl_clean:
                         st.download_button(
                             label     = "⬇ Download cleaned transcript",
-                            data      = json.dumps(
-                                cleaned_export, indent=2, ensure_ascii=False
-                            ),
+                            data      = json.dumps(cleaned_export, indent=2, ensure_ascii=False),
                             file_name = f"transcript_{slug}_{dt_str}_cleaned.json",
                             mime      = "application/json",
                             use_container_width=True,
                             key       = "btn_dl_cleaned",
+                        )
+                        st.caption(
+                            f"Excludes {n_excluded} checked utterance(s)"
+                            + (f" · applies {n_patched} patch(es)" if n_patched else "")
                         )
 
             col1, col2 = st.columns(2)
