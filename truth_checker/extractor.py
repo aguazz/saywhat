@@ -24,9 +24,18 @@ _SYSTEM = (
     "extract them as claims on their own\n"
     "- Metalinguistic commentary about the speaker's own discourse: 'as I was saying', "
     "'let me return to my point', 'to summarize', 'what I mean is'\n"
-    "- Embedded quotation of the opponent's view introduced for rebuttal: 'you argue that X', "
-    "'your position is that X', 'you claim that X' — extract only the speaker's own assertions, "
-    "not their description of what the other side believes\n"
+    "- Do NOT transform questions into assertions. If a sentence is interrogative (starts with "
+    "¿ or ends with ?), do not extract its content as an asserting claim. Mark it as "
+    "'questioning' or 'challenging' with the appropriate posture field instead.\n"
+    "- Claims the speaker voices to challenge or refute — these DO get extracted, but with "
+    "posture='challenging'. Includes: rhetorical questions like '¿Eso significa que X?', "
+    "'¿No es contradictorio que X?', '¿Cómo puede ser que X?'; and steelmanning patterns "
+    "like 'podría decirse que X', 'siguiendo esa lógica X sería verdad', 'one could argue X'. "
+    "Set attributed_to to the source or 'opponent's implied position'.\n"
+    "- Claims attributed to any third party — these DO get extracted, but with "
+    "posture='attributing'. Covers: the other debater, social media posts, studies, "
+    "institutions, unnamed sources ('la industria dice que', 'la ciencia dice que', "
+    "'según X'). Set attributed_to to the name of the source.\n"
     "- Performative speech acts that are argumentative moves, not claims: 'I agree', "
     "'I disagree', 'I concede that', 'I accept your point'\n"
 
@@ -34,9 +43,18 @@ _SYSTEM = (
     "Be conservative: extract the 3–6 most substantive claims per turn, not every possible statement. "
     "The turn may be in Spanish or English — preserve the original language in your output. "
 
-    'Return a JSON array. Each item: {"text": str, "start_hint": str, "qualifier": str, "stance": str, "premises": [str], "rebuttal_cond": str|null, "warrant_hint": str|null}. '
+    'Return a JSON array. Each item: {"text": str, "start_hint": str, "qualifier": str, "stance": str, "premises": [str], "rebuttal_cond": str|null, "warrant_hint": str|null, "posture": str, "attributed_to": str|null}. '
     '"text" is the exact or lightly cleaned claim. '
     '"start_hint" is the first 5 words of the sentence containing the claim. '
+    '"posture" is one of ["asserting", "challenging", "attributing", "questioning"]. '
+    'Use "asserting" when the speaker states this as their own belief or factual position. '
+    'Use "challenging" when voicing a claim in order to refute or interrogate it (rhetorical '
+    'questions, steelmanning). Use "attributing" when explicitly reporting someone else\'s claim '
+    '("B dijo que...", "el post decía que...", "según X..."). Use "questioning" when genuinely '
+    'asking whether the claim is true without committing to it. Default to "asserting".\n'
+    '"attributed_to": null if posture is "asserting". Otherwise the name of the source, '
+    'speaker, institution, or short description (e.g. "Azarian\'s Instagram post", "Kiss", '
+    '"B (steelmanned position)", "la industria azucarera").\n'
     '"qualifier" captures the modal certainty with which the speaker asserted the claim:\n'
     '  "definite"    — stated as an established fact, no hedging '
     '(e.g. "wages fell", "the data shows", "it is a fact that")\n'
@@ -138,6 +156,10 @@ def extract_claims_from_turn(turn: dict, api_key: str, motion: str = "", glossar
             _premises = []
         _rb = item.get("rebuttal_cond")
         _wh = item.get("warrant_hint")
+        _posture = item.get("posture", "asserting")
+        if _posture not in {"asserting", "challenging", "attributing", "questioning"}:
+            _posture = "asserting"
+        _attributed_to = item.get("attributed_to") or None
         claims.append(
             {
                 "id":             f"claim_{turn['turn_index']}_{i}",
@@ -152,6 +174,8 @@ def extract_claims_from_turn(turn: dict, api_key: str, motion: str = "", glossar
                 "premises":       [p for p in _premises if isinstance(p, str) and p.strip()],
                 "rebuttal_cond":  _rb.strip() if isinstance(_rb, str) and _rb.strip() else None,
                 "warrant_hint":   _wh.strip() if isinstance(_wh, str) and _wh.strip() else None,
+                "posture":        _posture,
+                "attributed_to":  _attributed_to,
             }
         )
 
