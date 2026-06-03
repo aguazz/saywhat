@@ -31,6 +31,7 @@ _EDGE_COLORS = {
     "reframes":  "#9467bd",
     "evades":    "#aaaaaa",
     "ignores":   "#aaaaaa",
+    "affirms":   "#2ca02c",  # green — B adopts A's challenged/questioned proposition
 }
 
 
@@ -49,6 +50,7 @@ _REL_DESCRIPTIONS = {
     "reframes":  "accepts the facts but changes their interpretation",
     "evades":    "changes subject without addressing the claim",
     "ignores":   "makes an unrelated new point",
+    "affirms":   "adopts this proposition as their own assertion",
 }
 
 
@@ -129,9 +131,25 @@ def build_graph_html(
             size         = 10
             border_width = 1
         else:
-            node_color = (
-                {"background": bg, "border": border_color} if border_color else bg
-            )
+            _posture  = claim.get("posture", "asserting")
+            _is_synth = bool(claim.get("affirmed_from"))
+            if _is_synth:
+                # Synthesized asserting claim — slightly faded fill, green border tint
+                _fill   = _hex_to_rgba(bg, 0.7)
+                _border = border_color or "#2ca02c"
+            elif _posture in ("challenging", "questioning"):
+                # Voiced to challenge or interrogate — faded fill
+                _fill   = _hex_to_rgba(bg, 0.35)
+                _border = border_color
+            elif _posture == "attributing":
+                # Reporting someone else's claim — faded fill, gray border
+                _fill   = _hex_to_rgba(bg, 0.35)
+                _border = border_color or "#888888"
+            else:
+                # Standard asserting claim — full color
+                _fill   = bg
+                _border = border_color
+            node_color = {"background": _fill, "border": _border} if _border else _fill
 
         net.add_node(
             cid, label=label, title=title,
@@ -232,6 +250,54 @@ def build_graph_html(
                 color={"color": color, "highlight": color},
                 title=title,
                 arrows="to",
+            )
+
+    # ── Posture-specific edges ────────────────────────────────────────────────
+    # 1. challenging / attributing claims → external source node
+    # 2. synthesized claims (affirmed_from set) → dashed edge to original
+    source_nodes_added: set[str] = set()
+
+    for claim in claims:
+        cid     = claim["id"]
+        posture = claim.get("posture", "asserting")
+
+        # Edge from challenge/attribution claim to external source node
+        attr_src = claim.get("attributed_to") or ""
+        if posture in ("challenging", "attributing") and attr_src and cid in known_ids:
+            src_node_id = f"source__{attr_src[:60].replace(' ', '_')}"
+
+            if src_node_id not in source_nodes_added and src_node_id not in known_ids:
+                net.add_node(
+                    src_node_id,
+                    label=attr_src[:35] + ("…" if len(attr_src) > 35 else ""),
+                    title=f"External source: {attr_src}",
+                    color={"background": "#f5f5f5", "border": "#aaaaaa"},
+                    shape="box",
+                    size=12,
+                    borderWidth=1,
+                )
+                source_nodes_added.add(src_node_id)
+
+            _ec = "#d62728" if posture == "challenging" else "#888888"
+            _el = "challenges" if posture == "challenging" else "reports"
+            net.add_edge(
+                cid, src_node_id,
+                color={"color": _ec, "highlight": _ec},
+                title=f"{_el}: {attr_src}",
+                arrows="to",
+                dashes=True,
+            )
+
+        # Dashed green edge from synthesized claim back to the original challenge
+        orig_id = claim.get("affirmed_from")
+        if orig_id and cid in known_ids and orig_id in known_ids:
+            _green = "#2ca02c"
+            net.add_edge(
+                cid, orig_id,
+                color={"color": _green, "highlight": _green},
+                title="affirmed from: synthesized from this challenged claim",
+                arrows="to",
+                dashes=True,
             )
 
     net.set_options(json.dumps({
