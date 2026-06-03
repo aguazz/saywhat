@@ -2156,11 +2156,21 @@ def main() -> None:
                     st.session_state["excluded_utterance_reasons"] = {
                         r["index"]: r["reason"] for r in oos_results
                     }
+                    st.session_state["excluded_utterance_confidence"] = {
+                        r["index"]: r.get("confidence", "high") for r in oos_results
+                    }
                     if oos_results:
+                        n_high   = sum(1 for r in oos_results if r.get("confidence") == "high")
+                        n_medium = sum(1 for r in oos_results if r.get("confidence") == "medium")
+                        n_low    = sum(1 for r in oos_results if r.get("confidence") == "low")
+                        parts = [f"{len(oos_results)} segment(s) flagged"]
+                        if n_medium:
+                            parts.append(f"⚠️ {n_medium} mixed (review carefully)")
+                        if n_low:
+                            parts.append(f"ℹ️ {n_low} low-confidence")
                         st.success(
-                            f"Found {len(oos_results)} utterance(s) to exclude. "
-                            "Review below — remove any you disagree with, then "
-                            "download the cleaned transcript."
+                            " · ".join(parts) + ". "
+                            "Remove any you disagree with, then download the cleaned transcript."
                         )
                     else:
                         st.info("No non-debate segments detected.")
@@ -2168,18 +2178,32 @@ def main() -> None:
                     st.caption("Add ANTHROPIC_API_KEY to enable detection.")
 
                 excluded = st.session_state.get("excluded_utterance_indices", set())
-                excluded_reasons = st.session_state.get(
-                    "excluded_utterance_reasons", {}
-                )
+                excluded_reasons    = st.session_state.get("excluded_utterance_reasons", {})
+                excluded_confidence = st.session_state.get("excluded_utterance_confidence", {})
+
+                _CONF_ICON = {
+                    "high":   "🔴",
+                    "medium": "🟡",
+                    "low":    "🔵",
+                }
+                _CONF_CAPTION = {
+                    "high":   "",
+                    "medium": "⚠️ Mixed content — this utterance also contains debate material. "
+                              "Consider keeping it; the extractor will ignore the non-debate lines.",
+                    "low":    "ℹ️ Minor element — mostly debate content. "
+                              "Removing this utterance will likely discard useful claims.",
+                }
+
                 if excluded:
                     for idx in sorted(excluded):
                         if idx >= len(utterances):
                             continue
-                        u = utterances[idx]
-                        spk_name = speaker_names.get(u["speaker"]) or u["speaker"]
-                        reason = excluded_reasons.get(idx, "Non-debate segment")
-                        full_text = u.get("text", "")
-                        preview = (
+                        u          = utterances[idx]
+                        spk_name   = speaker_names.get(u["speaker"]) or u["speaker"]
+                        reason     = excluded_reasons.get(idx, "Non-debate segment")
+                        confidence = excluded_confidence.get(idx, "high")
+                        full_text  = u.get("text", "")
+                        preview    = (
                             full_text[:180] + "…"
                             if len(full_text) > 180 else full_text
                         )
@@ -2187,8 +2211,12 @@ def main() -> None:
                         with st.container(border=True):
                             col_hd, col_rm = st.columns([8, 1])
                             with col_hd:
+                                icon = _CONF_ICON.get(confidence, "🔴")
                                 st.markdown(f"**[{idx}] {spk_name}**")
-                                st.caption(f"🚫 {reason}")
+                                st.caption(f"{icon} {reason}")
+                                warn = _CONF_CAPTION.get(confidence, "")
+                                if warn:
+                                    st.caption(warn)
                             with col_rm:
                                 st.markdown(
                                     "<div style='padding-top:10px'></div>",
@@ -2204,8 +2232,13 @@ def main() -> None:
                                         k: v for k, v in excluded_reasons.items()
                                         if k != idx
                                     }
-                                    st.session_state["excluded_utterance_indices"] = new_excl
-                                    st.session_state["excluded_utterance_reasons"] = new_rsns
+                                    new_conf = {
+                                        k: v for k, v in excluded_confidence.items()
+                                        if k != idx
+                                    }
+                                    st.session_state["excluded_utterance_indices"]  = new_excl
+                                    st.session_state["excluded_utterance_reasons"]  = new_rsns
+                                    st.session_state["excluded_utterance_confidence"] = new_conf
                                     st.rerun()
                             st.markdown(f"*{preview}*")
                             if st.toggle(
@@ -2228,8 +2261,9 @@ def main() -> None:
                     col_clear, col_dl_clean = st.columns(2)
                     with col_clear:
                         if st.button("Clear all exclusions", key="btn_clear_oos"):
-                            st.session_state["excluded_utterance_indices"] = set()
-                            st.session_state["excluded_utterance_reasons"] = {}
+                            st.session_state["excluded_utterance_indices"]    = set()
+                            st.session_state["excluded_utterance_reasons"]    = {}
+                            st.session_state["excluded_utterance_confidence"] = {}
                             st.rerun()
                     with col_dl_clean:
                         st.download_button(

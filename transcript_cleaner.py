@@ -69,13 +69,22 @@ _SYSTEM = (
     "Return a JSON object with this exact structure:\n"
     "{\n"
     "  \"out_of_scope\": [\n"
-    "    {\"index\": <integer>, \"reason\": \"<one concise sentence explaining why>\"},\n"
+    "    {\"index\": <integer>, \"reason\": \"<one concise sentence explaining why>\", "
+    "\"confidence\": \"high\" | \"medium\" | \"low\"},\n"
     "    ...\n"
     "  ]\n"
     "}\n\n"
     "The reason must name the specific category (e.g. 'Podcast intro', 'Sponsor read', "
     "'Outro sign-off', 'Teaser clip') and quote a short phrase from the utterance that "
     "triggered the detection.\n"
+    "confidence levels:\n"
+    "  \"high\"   — the utterance is entirely or almost entirely non-debate content; "
+    "safe to exclude with no loss of analysis material.\n"
+    "  \"medium\" — the utterance contains BOTH non-debate content AND substantial debate "
+    "content; removing it would also discard legitimate claims or arguments. Flag it so "
+    "the user can review carefully.\n"
+    "  \"low\"    — the utterance has only minor non-debate elements embedded in otherwise "
+    "legitimate debate content; the non-debate portion is brief relative to the whole.\n"
     "If nothing should be excluded, return { \"out_of_scope\": [] }. "
     "Return only valid JSON. No markdown fences."
 )
@@ -99,8 +108,11 @@ def _render_truncated(i: int, u: dict) -> str:
     return f"[{i}] {speaker}: {text[:_HEAD_CHARS]} […] {text[-_TAIL_CHARS:]}"
 
 
+_VALID_CONFIDENCE = {"high", "medium", "low"}
+
+
 def _parse_response(raw: str) -> list[dict]:
-    """Parse a model JSON response into a list of {index, reason} dicts."""
+    """Parse a model JSON response into a list of {index, reason, confidence} dicts."""
     data = json.loads(raw)
     if not isinstance(data, dict):
         raise ValueError("expected a JSON object")
@@ -110,12 +122,20 @@ def _parse_response(raw: str) -> list[dict]:
     result = []
     for item in items:
         if isinstance(item, dict) and isinstance(item.get("index"), (int, float)):
+            confidence = item.get("confidence", "high")
+            if confidence not in _VALID_CONFIDENCE:
+                confidence = "high"
             result.append({
-                "index":  int(item["index"]),
-                "reason": str(item.get("reason", "Non-debate segment")),
+                "index":      int(item["index"]),
+                "reason":     str(item.get("reason", "Non-debate segment")),
+                "confidence": confidence,
             })
         elif isinstance(item, (int, float)):
-            result.append({"index": int(item), "reason": "Non-debate segment"})
+            result.append({
+                "index":      int(item),
+                "reason":     "Non-debate segment",
+                "confidence": "high",
+            })
     return result
 
 
