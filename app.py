@@ -1284,6 +1284,34 @@ def _get_claim_role(
     return response.content[0].text.strip().rstrip(".")
 
 
+def _posture_badge(claim: dict, speaker_names: dict) -> str:
+    """Return an HTML badge string for a claim's posture, or '' for plain assertions."""
+    posture = claim.get("posture", "asserting")
+    source  = claim.get("attributed_to") or ""
+
+    # Synthesized asserting claim (affirmed from another speaker's challenge)
+    if posture == "asserting" and claim.get("affirmed_from"):
+        return (
+            '<span style="font-size:0.78em;color:#2a7;font-style:italic">'
+            "⬆ synthesized — affirmed from a challenged claim"
+            "</span>"
+        )
+
+    if posture == "asserting":
+        return ""
+
+    _labels = {
+        "challenging": "↩ challenges",
+        "attributing": "📎 reports",
+        "questioning": "? questions",
+    }
+    badge = _labels.get(posture, posture)
+    text  = f"{badge}: {source}" if source else badge
+    return (
+        f'<span style="font-size:0.78em;color:#888;font-style:italic">{text}</span>'
+    )
+
+
 def _render_claim_card(
     sel_c: dict,
     tl_claims: list,
@@ -1329,6 +1357,11 @@ def _render_claim_card(
     if _sel_stage_lbl:
         _meta_parts.append(f"**{L('card_stage')}:** {_sel_stage_lbl}")
     st.markdown(" &nbsp;·&nbsp; ".join(_meta_parts), unsafe_allow_html=True)
+
+    # Posture badge (hidden for plain asserting claims)
+    _badge_html = _posture_badge(sel_c, speaker_names)
+    if _badge_html:
+        st.markdown(_badge_html, unsafe_allow_html=True)
 
     # Purpose section — stance badge + AI role sentence
     _motion_set  = st.session_state.get("motion", "").strip()
@@ -1413,7 +1446,16 @@ def _render_claim_card(
         _vdict = _verdicts_ss.get(_sel_id)
         if _vdict:
             st.markdown("---")
-            st.markdown(f"**{L('col_verdict')}**")
+            if sel_c.get("check_as_attributed"):
+                _attr_src = sel_c.get("attributed_to") or ""
+                _verdict_hdr = (
+                    f"**{L('col_verdict')} — Claim attributed to {_attr_src}**"
+                    if _attr_src else
+                    f"**{L('col_verdict')} — Attributed claim**"
+                )
+                st.markdown(_verdict_hdr)
+            else:
+                st.markdown(f"**{L('col_verdict')}**")
             _v_key = _vdict.get("verdict", "")
             _VSTYLE_CARD = {
                 "true":           ("#d4edda", L("verdict_true")),
