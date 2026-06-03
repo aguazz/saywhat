@@ -144,7 +144,7 @@ def detect_out_of_scope_utterances(
     api_key: str = "",
 ) -> list[dict]:
     """
-    Two-phase robust detection of non-debate utterances.
+    Three-phase robust detection of non-debate utterances.
 
     Phase 1 — Chunked local scan (full text, no truncation):
         Processes _CHUNK_SIZE utterances at a time with complete text.
@@ -157,7 +157,14 @@ def detect_out_of_scope_utterances(
         clips and patterns that require cross-utterance comparison.
         Makes 1 API call.
 
-    Results from both phases are merged (Phase 1 reasons take priority).
+    Phase 3 — Structural teaser propagation (zero API calls):
+        Finds the earliest utterance flagged as a podcast intro by
+        Phases 1–2. Every utterance before it is structurally a teaser
+        clip (podcast highlight preview placed before the show starts)
+        and is flagged automatically. Existing reasons are not overwritten
+        so users see accurate labels for items already caught above.
+
+    Results from all phases are merged (Phase 1 reasons take priority).
     Returns a list of {"index": int, "reason": str} dicts, sorted by index.
     """
     client = anthropic.Anthropic(api_key=api_key)
@@ -192,5 +199,26 @@ def detect_out_of_scope_utterances(
     for r in _call_model(user_msg_global, client):
         if r["index"] not in found:  # don't overwrite Phase 1 reasons
             found[r["index"]] = r
+
+    # ── Phase 3: structural teaser propagation ────────────────────────────
+    # Podcast teasers always appear BEFORE the intro segment. Once we know
+    # which utterance is the intro, everything before it is a teaser by
+    # definition — no model call needed.
+    intro_indices = [
+        r["index"] for r in found.values()
+        if "intro" in r["reason"].lower()
+    ]
+    if intro_indices:
+        intro_idx = min(intro_indices)
+        for i in range(intro_idx):
+            if i not in found:
+                found[i] = {
+                    "index":  i,
+                    "reason": (
+                        f"Teaser clip: appears before the detected intro "
+                        f"segment (utterance {intro_idx})"
+                    ),
+                }
+            # If already flagged for another reason, keep that reason.
 
     return sorted(found.values(), key=lambda x: x["index"])
