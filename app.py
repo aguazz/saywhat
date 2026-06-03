@@ -2323,27 +2323,36 @@ def main() -> None:
                         "_cleaned": True,
                     }
 
+                    # on_click callbacks run before the next render cycle, so
+                    # they can safely write to widget-bound session state keys.
+                    def _oos_uncheck_all():
+                        _det = st.session_state.get("excluded_utterance_reasons", {})
+                        for _i2 in _det.keys():
+                            st.session_state[f"oos_check_{_i2}"] = False
+                        st.session_state["excluded_utterance_indices"] = set()
+
+                    def _oos_check_all():
+                        _det = st.session_state.get("excluded_utterance_reasons", {})
+                        _pat = st.session_state.get("utterance_patches", {})
+                        for _i2 in _det.keys():
+                            if _i2 not in _pat:
+                                st.session_state[f"oos_check_{_i2}"] = True
+
                     col_uncheck, col_checkall, col_dl_clean = st.columns([2, 2, 3])
                     with col_uncheck:
-                        if st.button(
+                        st.button(
                             "☐ Uncheck all",
                             key="btn_uncheck_all_oos",
                             help="Uncheck all — keep every utterance (nothing excluded).",
-                        ):
-                            for _i2 in _all_detected_reasons.keys():
-                                st.session_state[f"oos_check_{_i2}"] = False
-                            st.session_state["excluded_utterance_indices"] = set()
-                            st.rerun()
+                            on_click=_oos_uncheck_all,
+                        )
                     with col_checkall:
-                        if st.button(
+                        st.button(
                             "☑ Check all",
                             key="btn_checkall_oos",
                             help="Check all — exclude every detected segment.",
-                        ):
-                            for _i2 in _all_detected_reasons.keys():
-                                if _i2 not in _utt_patches:
-                                    st.session_state[f"oos_check_{_i2}"] = True
-                            st.rerun()
+                            on_click=_oos_check_all,
+                        )
                     with col_dl_clean:
                         st.download_button(
                             label     = "⬇ Download cleaned transcript",
