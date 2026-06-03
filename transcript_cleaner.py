@@ -156,7 +156,60 @@ def _call_model(user_msg: str, client: anthropic.Anthropic) -> list[dict]:
         logger.warning("OOS model call failed: %s", exc)
     return []
 
+# ── Sub-utterance patch system prompt ────────────────────────────────────────
+
+_PATCH_SYSTEM = (
+    "You are cleaning a debate transcript. The utterance you receive contains both "
+    "debate content and a non-debate segment that has already been identified. "
+    "Your task: remove only the non-debate sentences, preserving every debate "
+    "sentence exactly as-is — do not paraphrase, summarise, reorder, or add text. "
+    "Return only the cleaned utterance text. "
+    "No commentary, no ellipsis markers where content was removed, no formatting. "
+    "If the entire utterance is non-debate, return an empty string."
+)
+
 # ── Public API ────────────────────────────────────────────────────────────────
+
+def propose_utterance_patch(
+    utterance_text: str,
+    reason: str,
+    motion: str = "",
+    api_key: str = "",
+) -> str | None:
+    """
+    Given an utterance that contains mixed debate and non-debate content,
+    return a cleaned version with only the non-debate sentences removed.
+
+    Uses Claude Sonnet (same tier as the detection scan) so the model has
+    sufficient context to make sentence-level decisions reliably.
+
+    Returns the cleaned text string, or None on any failure.
+    The caller should show the result as a proposal and let the user
+    accept or discard it — never apply silently.
+    """
+    motion_line = f"Debate topic: {motion}\n" if motion.strip() else ""
+    user_msg = (
+        f"{motion_line}"
+        f"Utterance to clean:\n{utterance_text}\n\n"
+        f"Detected non-debate content: {reason}\n\n"
+        f"Return the utterance with the non-debate sentences removed. "
+        f"Keep all debate content verbatim."
+    )
+
+    client = anthropic.Anthropic(api_key=api_key)
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            system=_PATCH_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        cleaned = response.content[0].text.strip()
+        return cleaned if cleaned else None
+    except Exception as exc:
+        logger.warning("propose_utterance_patch failed: %s", exc)
+        return None
+
 
 def detect_out_of_scope_utterances(
     utterances: list[dict],

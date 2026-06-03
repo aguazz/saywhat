@@ -13,7 +13,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from downloader import download_audio
-from transcript_cleaner import detect_out_of_scope_utterances
+from transcript_cleaner import detect_out_of_scope_utterances, propose_utterance_patch
 from exporters import build_analysis_pdf, build_pdf, substitute_names
 from flagging import flag_transcript
 from identifier import suggest_speaker_names
@@ -2248,8 +2248,82 @@ def main() -> None:
                             ):
                                 st.markdown(full_text)
 
+                            # Sub-utterance patch: offer surgical cleaning for
+                            # medium/low confidence flags (mixed content).
+                            if confidence in ("medium", "low") and anthropic_key:
+                                _proposed_key = f"_oos_proposed_patch_{idx}"
+                                _proposed = st.session_state.get(_proposed_key)
+
+                                if _proposed is None:
+                                    if st.button(
+                                        "✂ Propose sub-utterance clean",
+                                        key=f"btn_patch_{idx}",
+                                        help="Ask Claude to remove only the non-debate sentences, keeping all debate content.",
+                                    ):
+                                        with st.spinner("Proposing sub-utterance clean…"):
+                                            _patch = propose_utterance_patch(
+                                                full_text,
+                                                reason,
+                                                motion=st.session_state.get("motion", ""),
+                                                api_key=anthropic_key,
+                                            )
+                                        if _patch:
+                                            st.session_state[_proposed_key] = _patch
+                                        else:
+                                            st.error("Could not generate a patch — try again.")
+                                        st.rerun()
+                                else:
+                                    st.markdown("**Proposed clean text** (non-debate sentences removed):")
+                                    col_orig, col_clean = st.columns(2)
+                                    with col_orig:
+                                        st.caption("Original")
+                                        st.markdown(
+                                            f'<div style="background:#fff3cd;padding:8px;'
+                                            f'border-radius:4px;font-size:0.85em;'
+                                            f'white-space:pre-wrap">{full_text}</div>',
+                                            unsafe_allow_html=True,
+                                        )
+                                    with col_clean:
+                                        st.caption("Cleaned")
+                                        st.markdown(
+                                            f'<div style="background:#d4edda;padding:8px;'
+                                            f'border-radius:4px;font-size:0.85em;'
+                                            f'white-space:pre-wrap">{_proposed}</div>',
+                                            unsafe_allow_html=True,
+                                        )
+                                    col_apply, col_discard = st.columns(2)
+                                    with col_apply:
+                                        if st.button(
+                                            "✓ Apply patch",
+                                            key=f"btn_apply_patch_{idx}",
+                                            type="primary",
+                                        ):
+                                            _patches = st.session_state.setdefault(
+                                                "utterance_patches", {}
+                                            )
+                                            _patches[idx] = _proposed
+                                            # Remove from exclusion list — patched
+                                            # utterance is now clean enough to keep.
+                                            new_excl = excluded - {idx}
+                                            new_rsns = {k: v for k, v in excluded_reasons.items() if k != idx}
+                                            new_conf = {k: v for k, v in excluded_confidence.items() if k != idx}
+                                            st.session_state["excluded_utterance_indices"]    = new_excl
+                                            st.session_state["excluded_utterance_reasons"]    = new_rsns
+                                            st.session_state["excluded_utterance_confidence"] = new_conf
+                                            del st.session_state[_proposed_key]
+                                            st.rerun()
+                                    with col_discard:
+                                        if st.button(
+                                            "✗ Discard proposal",
+                                            key=f"btn_discard_patch_{idx}",
+                                        ):
+                                            del st.session_state[_proposed_key]
+                                            st.rerun()
+
+                    _utt_patches = st.session_state.get("utterance_patches", {})
                     cleaned_utterances = [
-                        u for i, u in enumerate(merged_utterances)
+                        ({**u, "text": _utt_patches[i]} if i in _utt_patches else u)
+                        for i, u in enumerate(merged_utterances)
                         if i not in excluded
                     ]
                     cleaned_export = {
@@ -2264,6 +2338,11 @@ def main() -> None:
                             st.session_state["excluded_utterance_indices"]    = set()
                             st.session_state["excluded_utterance_reasons"]    = {}
                             st.session_state["excluded_utterance_confidence"] = {}
+                            st.session_state["utterance_patches"]             = {}
+                            # Clear any pending proposals
+                            for _k in list(st.session_state.keys()):
+                                if _k.startswith("_oos_proposed_patch_"):
+                                    del st.session_state[_k]
                             st.rerun()
                     with col_dl_clean:
                         st.download_button(
@@ -2298,7 +2377,14 @@ def main() -> None:
         if not t:
             st.info(L("load_first"))
         else:
-            utterances_an   = t.get("utterances", [])
+            utterances_an = t.get("utterances", [])
+            # Apply any accepted sub-utterance patches before analysis
+            _an_patches = st.session_state.get("utterance_patches", {})
+            if _an_patches:
+                utterances_an = [
+                    {**u, "text": _an_patches[i]} if i in _an_patches else u
+                    for i, u in enumerate(utterances_an)
+                ]
             speakers_an     = sorted({u["speaker"] for u in utterances_an})
             transcript_lang = t.get("language", "en")
             speaker_names_an = {
