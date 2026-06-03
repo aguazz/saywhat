@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Optional
 
 import anthropic
 
@@ -175,7 +176,7 @@ def propose_utterance_patch(
     reason: str,
     motion: str = "",
     api_key: str = "",
-) -> str | None:
+) -> Optional[str]:
     """
     Given an utterance that contains mixed debate and non-debate content,
     return a cleaned version with only the non-debate sentences removed.
