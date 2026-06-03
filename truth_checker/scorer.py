@@ -40,11 +40,13 @@ def compute_speaker_scores(
         if claim.get("thread_id"):
             s.setdefault("_thread_ids", set()).add(claim["thread_id"])
 
+        _asserting = claim.get("posture", "asserting") == "asserting"
+
         verdict = claim.get("verdict", "")
-        if verdict in s["verdicts"]:
+        if verdict in s["verdicts"] and _asserting:
             s["verdicts"][verdict] += 1
 
-        if claim.get("checkable"):
+        if claim.get("checkable") and _asserting:
             s["checkable_claims"] += 1
 
         eq = claim.get("evidence_quality", "none") or "none"

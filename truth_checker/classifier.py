@@ -24,12 +24,13 @@ _SYSTEM = (
 )
 
 _DEFAULTS = {
-    "claim_type":        "factual",
-    "checkable":         False,
-    "evidence_in_speech": "",
-    "evidence_quality":  "none",
-    "suggested_query":   "",
-    "satirical":         False,
+    "claim_type":          "factual",
+    "checkable":           False,
+    "evidence_in_speech":  "",
+    "evidence_quality":    "none",
+    "suggested_query":     "",
+    "satirical":           False,
+    "check_as_attributed": False,
 }
 
 _VALID_TYPES = {
@@ -90,12 +91,13 @@ def classify_claim(claim: dict, api_key: str) -> dict:
         evidence_quality = "none"
 
     classification = {
-        "claim_type":         claim_type,
-        "checkable":          bool(data.get("checkable", False)),
-        "evidence_in_speech": str(data.get("evidence_in_speech", "")),
-        "evidence_quality":   evidence_quality,
-        "suggested_query":    str(data.get("suggested_query", "")),
-        "satirical":          bool(data.get("satirical", False)),
+        "claim_type":          claim_type,
+        "checkable":           bool(data.get("checkable", False)),
+        "evidence_in_speech":  str(data.get("evidence_in_speech", "")),
+        "evidence_quality":    evidence_quality,
+        "suggested_query":     str(data.get("suggested_query", "")),
+        "satirical":           bool(data.get("satirical", False)),
+        "check_as_attributed": claim.get("posture", "asserting") != "asserting",
     }
 
     return {**claim, **classification}
